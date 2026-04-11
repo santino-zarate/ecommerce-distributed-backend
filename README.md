@@ -19,4 +19,4 @@ Este es un proyecto de e-commerce robusto, diseñado con arquitectura hexagonal,
 3. `go run main.go` para levantar el servidor.
 
 ---
-*Hecho por [Tu Nombre] - Proyecto de aprendizaje distribuido.*
+*Hecho por [Santino Zarate] - Proyecto de aprendizaje distribuido.*

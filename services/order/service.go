@@ -4,7 +4,6 @@ import (
 	"context"
 	"e-commerce/pkg/events"
 	"e-commerce/pkg/rabbitmq"
-	"encoding/json"
 	"github.com/google/uuid"
 )
 
@@ -26,12 +25,7 @@ func (s *Service) CreateOrder(ctx context.Context, o *Order) error {
 	}
 	o.Status = StatusPending
 
-	// 1. Persistir
-	if err := s.repo.Save(ctx, o); err != nil {
-		return err
-	}
-
-	// 2. Publicar evento (SAGA)
+	// 1. Persistir + Outbox (Transaccional)
 	event := events.OrderCreated{
 		OrderID: uuid.MustParse(o.ID),
 		UserID:  uuid.MustParse(o.UserID),
@@ -41,12 +35,7 @@ func (s *Service) CreateOrder(ctx context.Context, o *Order) error {
 		TotalAmount: 0.0, // Placeholder
 	}
 
-	body, err := json.Marshal(event)
-	if err != nil {
-		return err
-	}
-
-	return s.rabbitClient.Publish("orders", "order.created", body)
+	return s.repo.(*PostgresRepository).SaveTransactional(ctx, o, "order.created", event)
 }
 
 // UpdateOrderStatus actualiza el estado de la orden basado en eventos.

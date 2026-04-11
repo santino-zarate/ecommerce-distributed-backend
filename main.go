@@ -45,15 +45,17 @@ func main() {
 	orderService := order.NewService(orderRepo, rabbitClient)
 	orderHandler := order.NewHandler(orderService)
 	orderConsumer := order.NewConsumer(rabbitClient, orderService)
+	orderRelay := order.NewRelay(dbpool, rabbitClient)
 
 	invRepo := inventory.NewPostgresRepository(dbpool)
 	invService := inventory.NewService(invRepo, rabbitClient)
 	invConsumer := inventory.NewConsumer(rabbitClient, invService)
 
-	// 4. Arrancar Consumidores en segundo plano
+	// 4. Arrancar workers en segundo plano
 	go invConsumer.StartListening()
 	go orderConsumer.StartListening()
-	log.Println("Consumidores de inventario y órdenes iniciados.")
+	go orderRelay.Start(ctx)
+	log.Println("Workers iniciados (Consumidores y Relay).")
 
 	// 5. Servidor HTTP
 	e := echo.New()

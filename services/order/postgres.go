@@ -2,8 +2,10 @@ package order
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -25,6 +27,32 @@ func (r *PostgresRepository) Save(ctx context.Context, o *Order) error {
 		return fmt.Errorf("error saving order: %w", err)
 	}
 	return nil
+}
+
+// SaveTransactional guarda orden y evento en una sola transacción.
+func (r *PostgresRepository) SaveTransactional(ctx context.Context, o *Order, eventType string, eventPayload interface{}) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	// 1. Guardar Orden
+	queryOrder := `INSERT INTO orders (id, user_id, product_id, quantity, status) VALUES ($1, $2, $3, $4, $5)`
+	_, err = tx.Exec(ctx, queryOrder, o.ID, o.UserID, o.ProductID, o.Quantity, o.Status)
+	if err != nil {
+		return err
+	}
+
+	// 2. Guardar en Outbox
+	payload, _ := json.Marshal(eventPayload)
+	queryOutbox := `INSERT INTO outbox (id, event_type, payload, created_at) VALUES ($1, $2, $3, NOW())`
+	_, err = tx.Exec(ctx, queryOutbox, uuid.New().String(), eventType, payload)
+	if err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
 }
 
 // GetByID busca una orden por ID en Postgres.

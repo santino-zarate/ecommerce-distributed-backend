@@ -36,13 +36,28 @@ func (r *Relay) Start(ctx context.Context) {
 }
 
 func (r *Relay) processOutbox(ctx context.Context) {
-	// 1. Obtener eventos pendientes
-	rows, err := r.db.Query(ctx, "SELECT id, event_type, payload FROM outbox LIMIT 10")
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		log.Printf("error starting outbox tx: %v", err)
+		return
+	}
+	defer tx.Rollback(ctx)
+
+	// 1. Obtener eventos pendientes con lock para evitar doble procesamiento.
+	rows, err := tx.Query(ctx, `
+		SELECT id, event_type, payload
+		FROM outbox
+		ORDER BY created_at
+		LIMIT 10
+		FOR UPDATE SKIP LOCKED
+	`)
 	if err != nil {
 		log.Printf("error querying outbox: %v", err)
 		return
 	}
 	defer rows.Close()
+
+	processedIDs := make([]string, 0, 10)
 
 	for rows.Next() {
 		var id, eventType string
@@ -62,11 +77,22 @@ func (r *Relay) processOutbox(ctx context.Context) {
 		}
 
 		// 3. Borrar de la outbox (solo si se publicó)
-		_, err = r.db.Exec(ctx, "DELETE FROM outbox WHERE id = $1", id)
+		_, err = tx.Exec(ctx, "DELETE FROM outbox WHERE id = $1", id)
 		if err != nil {
 			log.Printf("error deleting outbox event %s: %v", id, err)
 		} else {
 			log.Printf("Event %s processed and deleted from outbox", id)
+			processedIDs = append(processedIDs, id)
 		}
+	}
+
+	if err := rows.Err(); err != nil {
+		log.Printf("error iterating outbox rows: %v", err)
+		return
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		log.Printf("error committing outbox tx (processed=%d): %v", len(processedIDs), err)
+		return
 	}
 }

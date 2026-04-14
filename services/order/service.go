@@ -4,18 +4,18 @@ import (
 	"context"
 	"e-commerce/pkg/events"
 	"e-commerce/pkg/rabbitmq"
+	"fmt"
 	"github.com/google/uuid"
 )
 
 // Service implementa la lógica de negocio para órdenes.
 type Service struct {
-	repo         Repository
-	rabbitClient *rabbitmq.Client
+	repo Repository
 }
 
 // NewService crea una nueva instancia de Service inyectando el repo y el cliente de rabbit.
-func NewService(r Repository, rc *rabbitmq.Client) *Service {
-	return &Service{repo: r, rabbitClient: rc}
+func NewService(r Repository, _ *rabbitmq.Client) *Service {
+	return &Service{repo: r}
 }
 
 // CreateOrder crea una nueva orden, la persiste y publica un evento.
@@ -26,16 +26,29 @@ func (s *Service) CreateOrder(ctx context.Context, o *Order) error {
 	o.Status = StatusPending
 
 	// 1. Persistir + Outbox (Transaccional)
+	orderUUID, err := uuid.Parse(o.ID)
+	if err != nil {
+		return fmt.Errorf("invalid order id: %w", err)
+	}
+	userUUID, err := uuid.Parse(o.UserID)
+	if err != nil {
+		return fmt.Errorf("invalid user id: %w", err)
+	}
+	productUUID, err := uuid.Parse(o.ProductID)
+	if err != nil {
+		return fmt.Errorf("invalid product id: %w", err)
+	}
+
 	event := events.OrderCreated{
-		OrderID: uuid.MustParse(o.ID),
-		UserID:  uuid.MustParse(o.UserID),
+		OrderID: orderUUID,
+		UserID:  userUUID,
 		Items: []events.OrderItem{
-			{ProductID: uuid.MustParse(o.ProductID), Quantity: o.Quantity},
+			{ProductID: productUUID, Quantity: o.Quantity},
 		},
 		TotalAmount: 0.0, // Placeholder
 	}
 
-	return s.repo.(*PostgresRepository).SaveTransactional(ctx, o, "order.created", event)
+	return s.repo.SaveTransactional(ctx, o, "order.created", event)
 }
 
 // UpdateOrderStatus actualiza el estado de la orden basado en eventos.

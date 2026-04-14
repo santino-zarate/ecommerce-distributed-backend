@@ -26,33 +26,28 @@ func (s *Service) ReserveStock(ctx context.Context, event events.OrderCreated, h
 		return fmt.Errorf("order.created event without items")
 	}
 
-	// 1. Obtener inventario
-	productID := event.Items[0].ProductID.String()
-	inv, err := s.repo.GetByProductID(ctx, productID)
+	item := event.Items[0]
+	productID := item.ProductID.String()
+
+	// 1. Reservar stock de forma atómica en DB
+	reserved, err := s.repo.TryReserveStock(ctx, productID, item.Quantity)
 	if err != nil {
 		return err
 	}
 
-	// 2. Validar
-	if inv.QuantityAvailable < event.Items[0].Quantity {
+	// 2. Sin stock suficiente => publicar evento de fallo
+	if !reserved {
 		// Publicar evento de error
 		errorEvent := events.StockInsufficient{
 			OrderID:   event.OrderID,
-			ProductID: event.Items[0].ProductID,
+			ProductID: item.ProductID,
 			Reason:    "insufficient stock",
 		}
 		body, _ := json.Marshal(errorEvent)
 		return s.rabbitClient.Publish(rabbitmq.OrdersExchange, rabbitmq.InventoryFailedKey, body, headers)
 	}
 
-	// 3. Reservar
-	inv.QuantityAvailable -= event.Items[0].Quantity
-	inv.ReservedQuantity += event.Items[0].Quantity
-	if err := s.repo.Update(ctx, inv); err != nil {
-		return err
-	}
-
-	// 4. Publicar evento de éxito
+	// 3. Publicar evento de éxito
 	successEvent := events.InventoryReserved{
 		OrderID:                event.OrderID,
 		InventoryReservationID: uuid.New(),

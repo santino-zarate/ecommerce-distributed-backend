@@ -35,3 +35,22 @@ func (r *PostgresRepository) Update(ctx context.Context, i *Inventory) error {
 	}
 	return nil
 }
+
+// TryReserveStock intenta reservar stock de forma atómica para evitar overselling.
+// Devuelve true si la reserva se aplicó, false si no había stock suficiente.
+func (r *PostgresRepository) TryReserveStock(ctx context.Context, productID string, qty int) (bool, error) {
+	query := `
+		UPDATE inventory
+		SET quantity_available = quantity_available - $1,
+		    reserved_quantity  = reserved_quantity + $1
+		WHERE product_id = $2
+		  AND quantity_available >= $1
+	`
+
+	cmd, err := r.db.Exec(ctx, query, qty, productID)
+	if err != nil {
+		return false, fmt.Errorf("error reserving stock atomically: %w", err)
+	}
+
+	return cmd.RowsAffected() == 1, nil
+}

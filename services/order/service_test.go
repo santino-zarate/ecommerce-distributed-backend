@@ -21,7 +21,9 @@ func TestCreateOrder(t *testing.T) {
 	}
 
 	// Expectation
-	mockRepo.On("Save", mock.Anything, mock.AnythingOfType("*order.Order")).Return(nil)
+	mockRepo.
+		On("SaveTransactional", mock.Anything, mock.AnythingOfType("*order.Order"), "order.created", mock.Anything).
+		Return(nil)
 
 	// Action
 	err := service.CreateOrder(context.Background(), order)

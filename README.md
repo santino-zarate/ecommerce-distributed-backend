@@ -2,8 +2,6 @@
 
 Backend de e-commerce orientado a **arquitectura event-driven**, construido en Go con foco en patrones de consistencia distribuida.
 
-> Proyecto pensado para portfolio/CV: muestra diseño de SAGA, Outbox, mensajería con RabbitMQ, hardening de concurrencia y testing incremental.
-
 ## ✨ Highlights técnicos
 
 - **Go + Echo + pgx + RabbitMQ**

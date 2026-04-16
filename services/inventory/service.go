@@ -26,17 +26,28 @@ func (s *Service) ReserveStock(ctx context.Context, event events.OrderCreated, h
 		return fmt.Errorf("order.created event without items")
 	}
 
+	eventID := fmt.Sprint(headers["correlation_id"])
+	if eventID == "" || eventID == "<nil>" {
+		eventID = fmt.Sprintf("order-created:%s", event.OrderID.String())
+		headers["correlation_id"] = eventID
+	}
+
 	item := event.Items[0]
 	productID := item.ProductID.String()
 
-	// 1. Reservar stock de forma atómica en DB
-	reserved, err := s.repo.TryReserveStock(ctx, productID, item.Quantity)
+	// 1. Reservar stock de forma atómica e idempotente en DB
+	result, err := s.repo.ReserveStockOnce(ctx, eventID, productID, item.Quantity)
 	if err != nil {
 		return err
 	}
 
+	// Evento duplicado: ya se procesó anteriormente
+	if result == ReserveDuplicate {
+		return nil
+	}
+
 	// 2. Sin stock suficiente => publicar evento de fallo
-	if !reserved {
+	if result == ReserveInsufficient {
 		// Publicar evento de error
 		errorEvent := events.StockInsufficient{
 			OrderID:   event.OrderID,

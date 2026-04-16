@@ -54,3 +54,49 @@ func (r *PostgresRepository) TryReserveStock(ctx context.Context, productID stri
 
 	return cmd.RowsAffected() == 1, nil
 }
+
+// ReserveStockOnce aplica idempotencia + reserva atómica en una sola transacción.
+func (r *PostgresRepository) ReserveStockOnce(ctx context.Context, eventID, productID string, qty int) (ReserveResult, error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return ReserveInsufficient, fmt.Errorf("error starting reserve tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	insertProcessed := `
+		INSERT INTO processed_events (event_id, consumer, processed_at)
+		VALUES ($1, $2, NOW())
+		ON CONFLICT (event_id, consumer) DO NOTHING
+	`
+	insertCmd, err := tx.Exec(ctx, insertProcessed, eventID, "inventory-consumer")
+	if err != nil {
+		return ReserveInsufficient, fmt.Errorf("error registering processed event: %w", err)
+	}
+	if insertCmd.RowsAffected() == 0 {
+		return ReserveDuplicate, nil
+	}
+
+	reserveQuery := `
+		UPDATE inventory
+		SET quantity_available = quantity_available - $1,
+		    reserved_quantity  = reserved_quantity + $1
+		WHERE product_id = $2
+		  AND quantity_available >= $1
+	`
+	reserveCmd, err := tx.Exec(ctx, reserveQuery, qty, productID)
+	if err != nil {
+		return ReserveInsufficient, fmt.Errorf("error reserving stock atomically: %w", err)
+	}
+	if reserveCmd.RowsAffected() == 0 {
+		if err := tx.Commit(ctx); err != nil {
+			return ReserveInsufficient, fmt.Errorf("error committing insufficient reserve tx: %w", err)
+		}
+		return ReserveInsufficient, nil
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return ReserveInsufficient, fmt.Errorf("error committing reserve tx: %w", err)
+	}
+
+	return ReserveApplied, nil
+}

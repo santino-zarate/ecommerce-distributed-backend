@@ -34,6 +34,10 @@ func main() {
 	}
 	defer dbpool.Close()
 
+	if err := ensureInfraTables(ctx, dbpool); err != nil {
+		log.Fatalf("No se pudo preparar tablas de infraestructura: %v", err)
+	}
+
 	rabbitClient, err := rabbitmq.NewClient(rabbitURL)
 	if err != nil {
 		log.Fatalf("No se pudo conectar a RabbitMQ: %v", err)
@@ -69,4 +73,16 @@ func main() {
 	e.POST("/orders", orderHandler.CreateOrder)
 
 	log.Fatal(e.Start(":8080"))
+}
+
+func ensureInfraTables(ctx context.Context, dbpool *pgxpool.Pool) error {
+	_, err := dbpool.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS processed_events (
+			event_id TEXT NOT NULL,
+			consumer TEXT NOT NULL,
+			processed_at TIMESTAMP NOT NULL DEFAULT NOW(),
+			PRIMARY KEY (event_id, consumer)
+		)
+	`)
+	return err
 }

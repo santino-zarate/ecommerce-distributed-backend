@@ -28,3 +28,8 @@ func (m *MockRepository) SaveTransactional(ctx context.Context, o *Order, eventT
 	args := m.Called(ctx, o, eventType, eventPayload)
 	return args.Error(0)
 }
+
+func (m *MockRepository) ApplyInventoryResultOnce(ctx context.Context, eventID, orderID string, targetStatus OrderStatus, consumer string) (bool, error) {
+	args := m.Called(ctx, eventID, orderID, targetStatus, consumer)
+	return args.Bool(0), args.Error(1)
+}

@@ -55,3 +55,7 @@ func (s *Service) CreateOrder(ctx context.Context, o *Order) error {
 func (s *Service) UpdateOrderStatus(ctx context.Context, id string, status OrderStatus) error {
 	return s.repo.UpdateStatus(ctx, id, status)
 }
+
+func (s *Service) ApplyInventoryResultOnce(ctx context.Context, eventID, orderID string, status OrderStatus) (bool, error) {
+	return s.repo.ApplyInventoryResultOnce(ctx, eventID, orderID, status, "order-consumer")
+}

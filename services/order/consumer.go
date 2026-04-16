@@ -5,6 +5,7 @@ import (
 	"e-commerce/pkg/events"
 	"e-commerce/pkg/rabbitmq"
 	"encoding/json"
+	"fmt"
 	"log"
 )
 
@@ -37,10 +38,19 @@ func (c *Consumer) StartListening() {
 			}
 
 			log.Printf("Received InventoryReserved event: %s", reserved.OrderID)
-			if err := c.service.UpdateOrderStatus(context.Background(), reserved.OrderID.String(), StatusCreated); err != nil {
+			eventID := fmt.Sprint(d.Headers["correlation_id"])
+			if eventID == "" || eventID == "<nil>" {
+				eventID = fmt.Sprintf("inventory-reserved:%s", reserved.OrderID.String())
+			}
+
+			processed, err := c.service.ApplyInventoryResultOnce(context.Background(), eventID, reserved.OrderID.String(), StatusCreated)
+			if err != nil {
 				log.Printf("failed to update order status to CREATED: %v", err)
 				_ = d.Nack(false, true)
 				continue
+			}
+			if !processed {
+				log.Printf("duplicate inventory.reserved ignored (event=%s)", eventID)
 			}
 
 		case rabbitmq.InventoryFailedKey:
@@ -52,10 +62,19 @@ func (c *Consumer) StartListening() {
 			}
 
 			log.Printf("Received InventoryFailed event: %s", failed.OrderID)
-			if err := c.service.UpdateOrderStatus(context.Background(), failed.OrderID.String(), StatusFailed); err != nil {
+			eventID := fmt.Sprint(d.Headers["correlation_id"])
+			if eventID == "" || eventID == "<nil>" {
+				eventID = fmt.Sprintf("inventory-failed:%s", failed.OrderID.String())
+			}
+
+			processed, err := c.service.ApplyInventoryResultOnce(context.Background(), eventID, failed.OrderID.String(), StatusFailed)
+			if err != nil {
 				log.Printf("failed to update order status to FAILED: %v", err)
 				_ = d.Nack(false, true)
 				continue
+			}
+			if !processed {
+				log.Printf("duplicate inventory.failed ignored (event=%s)", eventID)
 			}
 
 		default:

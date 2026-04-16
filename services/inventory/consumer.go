@@ -46,6 +46,9 @@ func (c *Consumer) StartListening() {
 		headers := map[string]interface{}{}
 		if correlationID, ok := d.Headers["correlation_id"]; ok {
 			headers["correlation_id"] = fmt.Sprint(correlationID)
+		} else {
+			// Fallback para mantener idempotencia incluso si el header no llega.
+			headers["correlation_id"] = fmt.Sprintf("order-created:%s", event.OrderID.String())
 		}
 
 		// Llamar a la lógica de negocio

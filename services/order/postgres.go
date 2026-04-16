@@ -77,3 +77,41 @@ func (r *PostgresRepository) UpdateStatus(ctx context.Context, id string, status
 	}
 	return nil
 }
+
+// ApplyInventoryResultOnce aplica idempotencia por evento y actualiza el estado final de orden.
+func (r *PostgresRepository) ApplyInventoryResultOnce(ctx context.Context, eventID, orderID string, targetStatus OrderStatus, consumer string) (bool, error) {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("error starting apply-result tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	insertProcessed := `
+		INSERT INTO processed_events (event_id, consumer, processed_at)
+		VALUES ($1, $2, NOW())
+		ON CONFLICT (event_id, consumer) DO NOTHING
+	`
+	insertCmd, err := tx.Exec(ctx, insertProcessed, eventID, consumer)
+	if err != nil {
+		return false, fmt.Errorf("error registering processed event: %w", err)
+	}
+	if insertCmd.RowsAffected() == 0 {
+		return false, nil
+	}
+
+	_, err = tx.Exec(ctx,
+		`UPDATE orders SET status = $1 WHERE id = $2 AND status = $3`,
+		targetStatus,
+		orderID,
+		StatusPending,
+	)
+	if err != nil {
+		return false, fmt.Errorf("error applying inventory result to order: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("error committing apply-result tx: %w", err)
+	}
+
+	return true, nil
+}

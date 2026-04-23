@@ -124,6 +124,7 @@ func main() {
 	e.GET("/metrics", func(c echo.Context) error {
 		return c.JSON(200, metrics.Snapshot())
 	})
+	e.GET("/orders/:id", orderHandler.GetOrderByID)
 	e.POST("/orders", orderHandler.CreateOrder)
 
 	serverErrCh := make(chan error, 1)

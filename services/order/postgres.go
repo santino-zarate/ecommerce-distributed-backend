@@ -3,9 +3,11 @@ package order
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -63,6 +65,9 @@ func (r *PostgresRepository) GetByID(ctx context.Context, id string) (*Order, er
 	var o Order
 	err := row.Scan(&o.ID, &o.UserID, &o.ProductID, &o.Quantity, &o.Status)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrOrderNotFound
+		}
 		return nil, fmt.Errorf("error querying order: %w", err)
 	}
 	return &o, nil

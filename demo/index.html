@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>E-commerce Event-Driven Demo</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="hero container">
+      <p class="eyebrow">Portfolio Demo</p>
+      <h1>E-commerce Backend en Go con SAGA + Outbox</h1>
+      <p class="subtitle">
+        Demo mínima para mostrar un flujo event-driven real: crear orden, reservar stock y resolver estado final.
+      </p>
+      <div class="hero-links">
+        <a id="github-link" href="#" target="_blank" rel="noreferrer">GitHub (configurar)</a>
+        <a id="backend-link" href="#" target="_blank" rel="noreferrer">Backend URL (configurar)</a>
+      </div>
+    </header>
+
+    <main class="container">
+      <section class="panel">
+        <h2>Cómo funciona (resumen)</h2>
+        <ol>
+          <li><strong>POST /orders</strong> crea orden en estado <code>PENDING</code>.</li>
+          <li>Order guarda evento en <strong>outbox</strong>.</li>
+          <li>Relay publica <code>order.created</code> en RabbitMQ.</li>
+          <li>Inventory responde <code>inventory.reserved</code> o <code>inventory.failed</code>.</li>
+          <li>Order actualiza estado final: <code>CREATED</code> o <code>FAILED</code>.</li>
+        </ol>
+      </section>
+
+      <section class="grid-2">
+        <article class="panel">
+          <h2>Probar flujo demo</h2>
+          <p class="muted">En este PR la UI es mínima y no golpea backend real todavía. La conexión llega en PR #14.</p>
+
+          <div class="stack">
+            <button id="btn-success" class="btn btn-primary">Simular orden con stock</button>
+            <button id="btn-fail" class="btn btn-danger">Simular orden sin stock</button>
+          </div>
+
+          <h3>Payload demo</h3>
+          <pre id="payload-view" class="code"></pre>
+        </article>
+
+        <article class="panel">
+          <h2>Resultado</h2>
+          <div id="result" class="result">
+            <p class="muted">Todavía no ejecutaste ninguna prueba.</p>
+          </div>
+
+          <h3>Checklist técnico</h3>
+          <ul>
+            <li>✔ RabbitMQ (exchange/queues/bindings + ack/nack)</li>
+            <li>✔ Overselling mitigado (SQL atómico)</li>
+            <li>✔ Idempotencia en consumers</li>
+            <li>✔ Graceful shutdown + retry + timeouts</li>
+            <li>✔ Métricas básicas y health endpoint</li>
+          </ul>
+        </article>
+      </section>
+    </main>
+
+    <footer class="container footer">
+      <small>Demo UI mínima (PR #13). Integración real con backend en PR #14.</small>
+    </footer>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

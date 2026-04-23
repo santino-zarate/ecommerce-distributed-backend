@@ -16,7 +16,11 @@ func (m *MockRepository) Save(ctx context.Context, o *Order) error {
 
 func (m *MockRepository) GetByID(ctx context.Context, id string) (*Order, error) {
 	args := m.Called(ctx, id)
-	return args.Get(0).(*Order), args.Error(1)
+	val := args.Get(0)
+	if val == nil {
+		return nil, args.Error(1)
+	}
+	return val.(*Order), args.Error(1)
 }
 
 func (m *MockRepository) UpdateStatus(ctx context.Context, id string, status OrderStatus) error {

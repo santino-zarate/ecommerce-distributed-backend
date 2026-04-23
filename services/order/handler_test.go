@@ -109,3 +109,78 @@ func TestCreateOrder_ValidRequest(t *testing.T) {
 
 	mockRepo.AssertExpectations(t)
 }
+
+func TestGetOrderByID_BadRequest(t *testing.T) {
+	e := echo.New()
+	mockRepo := new(MockRepository)
+	service := NewService(mockRepo, nil)
+	handler := NewHandler(service)
+
+	req := httptest.NewRequest(http.MethodGet, "/orders/", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.SetPath("/orders/:id")
+	c.SetParamNames("id")
+	c.SetParamValues(" ")
+
+	err := handler.GetOrderByID(c)
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func TestGetOrderByID_NotFound(t *testing.T) {
+	e := echo.New()
+	mockRepo := new(MockRepository)
+	service := NewService(mockRepo, nil)
+	handler := NewHandler(service)
+
+	req := httptest.NewRequest(http.MethodGet, "/orders/unknown", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.SetPath("/orders/:id")
+	c.SetParamNames("id")
+	c.SetParamValues("unknown")
+
+	mockRepo.On("GetByID", mock.Anything, "unknown").Return((*Order)(nil), ErrOrderNotFound).Once()
+
+	err := handler.GetOrderByID(c)
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusNotFound, rec.Code)
+	mockRepo.AssertExpectations(t)
+}
+
+func TestGetOrderByID_Success(t *testing.T) {
+	e := echo.New()
+	mockRepo := new(MockRepository)
+	service := NewService(mockRepo, nil)
+	handler := NewHandler(service)
+
+	req := httptest.NewRequest(http.MethodGet, "/orders/order-1", nil)
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	c.SetPath("/orders/:id")
+	c.SetParamNames("id")
+	c.SetParamValues("order-1")
+
+	expected := &Order{
+		ID:        "order-1",
+		UserID:    "user-1",
+		ProductID: "product-1",
+		Quantity:  2,
+		Status:    StatusCreated,
+	}
+	mockRepo.On("GetByID", mock.Anything, "order-1").Return(expected, nil).Once()
+
+	err := handler.GetOrderByID(c)
+	assert.NoError(t, err)
+	assert.Equal(t, http.StatusOK, rec.Code)
+
+	var got Order
+	decodeErr := json.Unmarshal(rec.Body.Bytes(), &got)
+	assert.NoError(t, decodeErr)
+	assert.Equal(t, expected.ID, got.ID)
+	assert.Equal(t, expected.Status, got.Status)
+	assert.Equal(t, expected.Quantity, got.Quantity)
+
+	mockRepo.AssertExpectations(t)
+}

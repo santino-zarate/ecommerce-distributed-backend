@@ -8,6 +8,7 @@ Backend de e-commerce orientado a **arquitectura event-driven**, construido en G
 - **SAGA orchestration** (Order inicia, Inventory responde, Order cierra estado)
 - **Outbox Pattern** para consistencia entre DB y broker
 - **Routing explícito** por `routing_key` (sin inferencia por JSON)
+- **Channels RabbitMQ separados** por responsabilidad (topology/publish/consume)
 - **Ack/Nack manual** en consumers
 - **Fix anti-overselling** con reserva atómica en PostgreSQL
 - **Validación robusta de input** en el borde HTTP
@@ -44,6 +45,10 @@ Flujo principal:
 ```text
 .
 ├── main.go
+├── db/
+│   ├── migrations/      # schema base reproducible
+│   └── seeds/           # datos demo reproducibles
+├── demo/                # demo web mínima (PR #13)
 ├── pkg/
 │   ├── events/          # Contratos de eventos
 │   └── rabbitmq/        # Cliente, topology setup, publish/consume
@@ -98,11 +103,39 @@ go mod tidy
 - El servicio crea automáticamente tablas core al iniciar (`orders`, `inventory`, `outbox`, `processed_events`).
 - También tenés el SQL base en `db/migrations/001_init.sql` por si querés inicializar manualmente en otro entorno.
 
+### 2.2) Demo seed reproducible (PR portfolio)
+
+Para dejar datos demo listos (un producto con stock y otro sin stock):
+
+```bash
+docker compose exec -T postgres psql -U user -d ecommerce_db < db/seeds/001_demo.sql
+```
+
+IDs demo que podés usar:
+
+- `userId`: `11111111-1111-1111-1111-111111111111`
+- `productId` con stock: `22222222-2222-2222-2222-222222222222`
+- `productId` sin stock: `33333333-3333-3333-3333-333333333333`
+
 ### 3) Ejecutar API
 
 ```bash
 go run main.go
 ```
+
+### 3.1) Ejecutar demo web mínima (PR #13)
+
+En otro terminal:
+
+```bash
+cd demo
+python3 -m http.server 5500
+```
+
+Abrí: `http://localhost:5500`
+
+> En PR #13 la demo es visual/local (simulada).  
+> En PR #14 se conecta a endpoints reales del backend.
 
 ### Variables de entorno soportadas
 
@@ -114,9 +147,34 @@ go run main.go
 
 - `GET /health` → health check simple (`200 {"status":"ok"}`)
 - `GET /metrics` → métricas operativas básicas en JSON
+- `GET /orders/:id` → consultar estado de orden
 - `POST /orders` → crear orden
 
 Server local por defecto: `http://localhost:8080`
+
+### Quick demo (flujo saga)
+
+Crear orden con stock (esperado: termina en `CREATED`):
+
+```bash
+curl -X POST http://localhost:8080/orders \
+  -H "Content-Type: application/json" \
+  -d '{"userId":"11111111-1111-1111-1111-111111111111","productId":"22222222-2222-2222-2222-222222222222","quantity":1}'
+```
+
+Crear orden sin stock (esperado: termina en `FAILED`):
+
+```bash
+curl -X POST http://localhost:8080/orders \
+  -H "Content-Type: application/json" \
+  -d '{"userId":"11111111-1111-1111-1111-111111111111","productId":"33333333-3333-3333-3333-333333333333","quantity":1}'
+```
+
+Consultar estado final de la orden:
+
+```bash
+curl http://localhost:8080/orders/<ORDER_ID>
+```
 
 ## 🧪 Ejecutar tests
 

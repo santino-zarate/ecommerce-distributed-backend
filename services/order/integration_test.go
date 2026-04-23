@@ -7,7 +7,7 @@ import (
 
 	"e-commerce/pkg/rabbitmq"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	rmq "github.com/testcontainers/testcontainers-go/modules/rabbitmq"
@@ -32,18 +32,20 @@ func TestCreateOrderIntegration(t *testing.T) {
 				WithOccurrence(2).
 				WithStartupTimeout(10*time.Second)),
 	)
-	assert.NoError(t, err)
-	defer pgContainer.Terminate(ctx)
+	if err != nil {
+		t.Skipf("docker/testcontainers unavailable for postgres, skipping: %v", err)
+	}
+	t.Cleanup(func() { _ = pgContainer.Terminate(ctx) })
 
 	dbURL, err := pgContainer.ConnectionString(ctx, "sslmode=disable")
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Inicializamos DB
 	dbpool, err := pgxpool.New(ctx, dbURL)
-	assert.NoError(t, err)
-	defer dbpool.Close()
+	require.NoError(t, err)
+	t.Cleanup(dbpool.Close)
 
-	// Creamos la tabla
+	// Creamos tablas necesarias para SaveTransactional (orders + outbox).
 	_, err = dbpool.Exec(ctx, `CREATE TABLE orders (
 		id TEXT PRIMARY KEY,
 		user_id TEXT,
@@ -51,7 +53,14 @@ func TestCreateOrderIntegration(t *testing.T) {
 		quantity INT,
 		status TEXT
 	)`)
-	assert.NoError(t, err)
+	require.NoError(t, err)
+	_, err = dbpool.Exec(ctx, `CREATE TABLE outbox (
+		id TEXT PRIMARY KEY,
+		event_type TEXT NOT NULL,
+		payload JSONB NOT NULL,
+		created_at TIMESTAMP NOT NULL DEFAULT NOW()
+	)`)
+	require.NoError(t, err)
 
 	// 2. Levantamos RabbitMQ con wait strategy
 	rabbitContainer, err := rmq.RunContainer(ctx,
@@ -60,15 +69,18 @@ func TestCreateOrderIntegration(t *testing.T) {
 			wait.ForLog("Server startup complete").
 				WithStartupTimeout(15*time.Second)),
 	)
-	assert.NoError(t, err)
-	defer rabbitContainer.Terminate(ctx)
+	if err != nil {
+		t.Skipf("docker/testcontainers unavailable for rabbitmq, skipping: %v", err)
+	}
+	t.Cleanup(func() { _ = rabbitContainer.Terminate(ctx) })
 
 	rabbitURL, err := rabbitContainer.AmqpURL(ctx)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	rabbitClient, err := rabbitmq.NewClient(rabbitURL)
-	assert.NoError(t, err)
-	defer rabbitClient.Close()
+	require.NoError(t, err)
+	t.Cleanup(rabbitClient.Close)
+	require.NoError(t, rabbitClient.SetupTopology())
 
 	// 3. Ejecutamos Test
 	repo := NewPostgresRepository(dbpool)
@@ -81,10 +93,10 @@ func TestCreateOrderIntegration(t *testing.T) {
 	}
 
 	err = service.CreateOrder(ctx, order)
-	assert.NoError(t, err)
+	require.NoError(t, err)
 
 	// Verificamos en DB
 	savedOrder, err := repo.GetByID(ctx, order.ID)
-	assert.NoError(t, err)
-	assert.Equal(t, order.ID, savedOrder.ID)
+	require.NoError(t, err)
+	require.Equal(t, order.ID, savedOrder.ID)
 }

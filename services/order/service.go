@@ -59,3 +59,7 @@ func (s *Service) UpdateOrderStatus(ctx context.Context, id string, status Order
 func (s *Service) ApplyInventoryResultOnce(ctx context.Context, eventID, orderID string, status OrderStatus) (bool, error) {
 	return s.repo.ApplyInventoryResultOnce(ctx, eventID, orderID, status, "order-consumer")
 }
+
+func (s *Service) GetOrderByID(ctx context.Context, id string) (*Order, error) {
+	return s.repo.GetByID(ctx, id)
+}

@@ -2,6 +2,7 @@ package order
 
 import (
 	"e-commerce/pkg/metrics"
+	"errors"
 	"net/http"
 	"strings"
 
@@ -71,4 +72,28 @@ func (h *Handler) CreateOrder(c echo.Context) error {
 
 	metrics.Inc("orders_create_success_total")
 	return c.JSON(http.StatusCreated, o)
+}
+
+// GetOrderByID devuelve una orden por ID para poder inspeccionar el estado final de la saga.
+func (h *Handler) GetOrderByID(c echo.Context) error {
+	metrics.Inc("orders_get_requests_total")
+
+	id := strings.TrimSpace(c.Param("id"))
+	if id == "" {
+		metrics.Inc("orders_get_bad_request_total")
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "id is required"})
+	}
+
+	order, err := h.service.GetOrderByID(c.Request().Context(), id)
+	if err != nil {
+		if errors.Is(err, ErrOrderNotFound) {
+			metrics.Inc("orders_get_not_found_total")
+			return c.JSON(http.StatusNotFound, map[string]string{"error": "order not found"})
+		}
+		metrics.Inc("orders_get_internal_error_total")
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+
+	metrics.Inc("orders_get_success_total")
+	return c.JSON(http.StatusOK, order)
 }

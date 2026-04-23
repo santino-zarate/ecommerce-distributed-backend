@@ -56,10 +56,11 @@ func (r *PostgresRepository) TryReserveStock(ctx context.Context, productID stri
 }
 
 // ReserveStockOnce aplica idempotencia + reserva atómica en una sola transacción.
-func (r *PostgresRepository) ReserveStockOnce(ctx context.Context, eventID, productID string, qty int) (ReserveResult, error) {
+// Devuelve (resultado, fromDuplicate, error).
+func (r *PostgresRepository) ReserveStockOnce(ctx context.Context, eventID, orderID, productID string, qty int) (ReserveResult, bool, error) {
 	tx, err := r.db.Begin(ctx)
 	if err != nil {
-		return ReserveInsufficient, fmt.Errorf("error starting reserve tx: %w", err)
+		return ReserveInsufficient, false, fmt.Errorf("error starting reserve tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
@@ -70,10 +71,31 @@ func (r *PostgresRepository) ReserveStockOnce(ctx context.Context, eventID, prod
 	`
 	insertCmd, err := tx.Exec(ctx, insertProcessed, eventID, "inventory-consumer")
 	if err != nil {
-		return ReserveInsufficient, fmt.Errorf("error registering processed event: %w", err)
+		return ReserveInsufficient, false, fmt.Errorf("error registering processed event: %w", err)
 	}
 	if insertCmd.RowsAffected() == 0 {
-		return ReserveDuplicate, nil
+		var outcome string
+		err := tx.QueryRow(ctx, `
+			SELECT outcome
+			FROM inventory_event_results
+			WHERE event_id = $1
+		`, eventID).Scan(&outcome)
+		if err != nil {
+			return ReserveInsufficient, true, fmt.Errorf("duplicate event without stored outcome: %w", err)
+		}
+
+		if err := tx.Commit(ctx); err != nil {
+			return ReserveInsufficient, true, fmt.Errorf("error committing duplicate reserve tx: %w", err)
+		}
+
+		switch outcome {
+		case "APPLIED":
+			return ReserveApplied, true, nil
+		case "INSUFFICIENT":
+			return ReserveInsufficient, true, nil
+		default:
+			return ReserveInsufficient, true, fmt.Errorf("unknown stored outcome %q", outcome)
+		}
 	}
 
 	reserveQuery := `
@@ -85,18 +107,30 @@ func (r *PostgresRepository) ReserveStockOnce(ctx context.Context, eventID, prod
 	`
 	reserveCmd, err := tx.Exec(ctx, reserveQuery, qty, productID)
 	if err != nil {
-		return ReserveInsufficient, fmt.Errorf("error reserving stock atomically: %w", err)
+		return ReserveInsufficient, false, fmt.Errorf("error reserving stock atomically: %w", err)
 	}
+
+	outcome := "INSUFFICIENT"
 	if reserveCmd.RowsAffected() == 0 {
-		if err := tx.Commit(ctx); err != nil {
-			return ReserveInsufficient, fmt.Errorf("error committing insufficient reserve tx: %w", err)
-		}
-		return ReserveInsufficient, nil
+		outcome = "INSUFFICIENT"
+	} else {
+		outcome = "APPLIED"
+	}
+
+	_, err = tx.Exec(ctx, `
+		INSERT INTO inventory_event_results (event_id, order_id, product_id, outcome, created_at)
+		VALUES ($1, $2, $3, $4, NOW())
+	`, eventID, orderID, productID, outcome)
+	if err != nil {
+		return ReserveInsufficient, false, fmt.Errorf("error storing reserve outcome: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return ReserveInsufficient, fmt.Errorf("error committing reserve tx: %w", err)
+		return ReserveInsufficient, false, fmt.Errorf("error committing reserve tx: %w", err)
 	}
 
-	return ReserveApplied, nil
+	if outcome == "APPLIED" {
+		return ReserveApplied, false, nil
+	}
+	return ReserveInsufficient, false, nil
 }

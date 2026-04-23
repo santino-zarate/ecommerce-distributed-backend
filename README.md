@@ -11,6 +11,13 @@ Backend de e-commerce orientado a **arquitectura event-driven**, construido en G
 - **Ack/Nack manual** en consumers
 - **Fix anti-overselling** con reserva atómica en PostgreSQL
 - **Validación robusta de input** en el borde HTTP
+- **Graceful shutdown** (señales + cierre ordenado de HTTP/workers/recursos)
+- **Re-suscripción automática** de consumers ante corte de canal RabbitMQ
+- **Timeouts operativos** en startup y procesamiento crítico
+- **Startup retry** con backoff para DB/RabbitMQ/topology
+- **Logs estructurados** con `correlation_id` para trazabilidad
+- **Idempotencia final** con persistencia de outcome en inventory
+- **Métricas operativas básicas** en endpoint `/metrics`
 - **Tests de hardening** (handler, concurrencia inventory, relay/outbox)
 
 ## 🧱 Stack
@@ -86,13 +93,30 @@ docker-compose up -d
 go mod tidy
 ```
 
+### 2.1) Schema reproducible (PR deploy)
+
+- El servicio crea automáticamente tablas core al iniciar (`orders`, `inventory`, `outbox`, `processed_events`).
+- También tenés el SQL base en `db/migrations/001_init.sql` por si querés inicializar manualmente en otro entorno.
+
 ### 3) Ejecutar API
 
 ```bash
 go run main.go
 ```
 
-Server: `http://localhost:8080`
+### Variables de entorno soportadas
+
+- `PORT` (default: `8080`)
+- `DATABASE_URL` (default local de desarrollo)
+- `RABBITMQ_URL` (default local de desarrollo)
+
+### Endpoints base
+
+- `GET /health` → health check simple (`200 {"status":"ok"}`)
+- `GET /metrics` → métricas operativas básicas en JSON
+- `POST /orders` → crear orden
+
+Server local por defecto: `http://localhost:8080`
 
 ## 🧪 Ejecutar tests
 

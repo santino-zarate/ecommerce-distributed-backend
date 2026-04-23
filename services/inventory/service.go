@@ -34,16 +34,12 @@ func (s *Service) ReserveStock(ctx context.Context, event events.OrderCreated, h
 
 	item := event.Items[0]
 	productID := item.ProductID.String()
+	orderID := event.OrderID.String()
 
 	// 1. Reservar stock de forma atómica e idempotente en DB
-	result, err := s.repo.ReserveStockOnce(ctx, eventID, productID, item.Quantity)
+	result, duplicate, err := s.repo.ReserveStockOnce(ctx, eventID, orderID, productID, item.Quantity)
 	if err != nil {
 		return err
-	}
-
-	// Evento duplicado: ya se procesó anteriormente
-	if result == ReserveDuplicate {
-		return nil
 	}
 
 	// 2. Sin stock suficiente => publicar evento de fallo
@@ -56,6 +52,11 @@ func (s *Service) ReserveStock(ctx context.Context, event events.OrderCreated, h
 		}
 		body, _ := json.Marshal(errorEvent)
 		return s.rabbitClient.Publish(rabbitmq.OrdersExchange, rabbitmq.InventoryFailedKey, body, headers)
+	}
+
+	if duplicate {
+		// Duplicado con resultado previo APPLIED: re-publicamos la confirmación
+		// para tolerar fallos transitorios de publish del intento anterior.
 	}
 
 	// 3. Publicar evento de éxito

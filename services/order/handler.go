@@ -1,6 +1,7 @@
 package order
 
 import (
+	"e-commerce/pkg/metrics"
 	"net/http"
 	"strings"
 
@@ -26,8 +27,11 @@ func NewHandler(s *Service) *Handler {
 
 // CreateOrder es el endpoint para crear una orden.
 func (h *Handler) CreateOrder(c echo.Context) error {
+	metrics.Inc("orders_create_requests_total")
+
 	var req CreateOrderRequest
 	if err := c.Bind(&req); err != nil {
+		metrics.Inc("orders_create_bad_request_total")
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
 	}
 
@@ -35,18 +39,22 @@ func (h *Handler) CreateOrder(c echo.Context) error {
 	req.ProductID = strings.TrimSpace(req.ProductID)
 
 	if req.UserID == "" || req.ProductID == "" {
+		metrics.Inc("orders_create_bad_request_total")
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "userId and productId are required"})
 	}
 
 	if _, err := uuid.Parse(req.UserID); err != nil {
+		metrics.Inc("orders_create_bad_request_total")
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid userId"})
 	}
 
 	if _, err := uuid.Parse(req.ProductID); err != nil {
+		metrics.Inc("orders_create_bad_request_total")
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid productId"})
 	}
 
 	if req.Quantity <= 0 {
+		metrics.Inc("orders_create_bad_request_total")
 		return c.JSON(http.StatusBadRequest, map[string]string{"error": "quantity must be greater than 0"})
 	}
 
@@ -57,8 +65,10 @@ func (h *Handler) CreateOrder(c echo.Context) error {
 	}
 
 	if err := h.service.CreateOrder(c.Request().Context(), &o); err != nil {
+		metrics.Inc("orders_create_internal_error_total")
 		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 	}
 
+	metrics.Inc("orders_create_success_total")
 	return c.JSON(http.StatusCreated, o)
 }

@@ -2,8 +2,9 @@ package order
 
 import (
 	"context"
+	"e-commerce/pkg/logx"
+	"e-commerce/pkg/metrics"
 	"e-commerce/pkg/rabbitmq"
-	"log"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -14,6 +15,8 @@ type Relay struct {
 	db           *pgxpool.Pool
 	rabbitClient *rabbitmq.Client
 }
+
+const outboxProcessTimeout = 5 * time.Second
 
 // NewRelay crea una nueva instancia de Relay.
 func NewRelay(db *pgxpool.Pool, rc *rabbitmq.Client) *Relay {
@@ -36,15 +39,21 @@ func (r *Relay) Start(ctx context.Context) {
 }
 
 func (r *Relay) processOutbox(ctx context.Context) {
-	tx, err := r.db.Begin(ctx)
+	processCtx, cancel := context.WithTimeout(ctx, outboxProcessTimeout)
+	defer cancel()
+
+	tx, err := r.db.Begin(processCtx)
 	if err != nil {
-		log.Printf("error starting outbox tx: %v", err)
+		metrics.Inc("outbox_relay_tx_start_error_total")
+		logx.Error("error starting outbox tx", err, map[string]interface{}{
+			"component": "outbox-relay",
+		})
 		return
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(processCtx)
 
 	// 1. Obtener eventos pendientes con lock para evitar doble procesamiento.
-	rows, err := tx.Query(ctx, `
+	rows, err := tx.Query(processCtx, `
 		SELECT id, event_type, payload
 		FROM outbox
 		ORDER BY created_at
@@ -52,7 +61,10 @@ func (r *Relay) processOutbox(ctx context.Context) {
 		FOR UPDATE SKIP LOCKED
 	`)
 	if err != nil {
-		log.Printf("error querying outbox: %v", err)
+		metrics.Inc("outbox_relay_query_error_total")
+		logx.Error("error querying outbox", err, map[string]interface{}{
+			"component": "outbox-relay",
+		})
 		return
 	}
 	defer rows.Close()
@@ -63,7 +75,10 @@ func (r *Relay) processOutbox(ctx context.Context) {
 		var id, eventType string
 		var payload []byte
 		if err := rows.Scan(&id, &eventType, &payload); err != nil {
-			log.Printf("error scanning outbox row: %v", err)
+			metrics.Inc("outbox_relay_scan_error_total")
+			logx.Error("error scanning outbox row", err, map[string]interface{}{
+				"component": "outbox-relay",
+			})
 			continue
 		}
 
@@ -72,27 +87,60 @@ func (r *Relay) processOutbox(ctx context.Context) {
 			"correlation_id": id,
 		}
 		if err := r.rabbitClient.Publish(rabbitmq.OrdersExchange, eventType, payload, headers); err != nil {
-			log.Printf("error publishing event %s: %v", id, err)
+			metrics.Inc("outbox_relay_publish_error_total")
+			logx.Error("error publishing outbox event", err, map[string]interface{}{
+				"component":      "outbox-relay",
+				"event_id":       id,
+				"event_type":     eventType,
+				"correlation_id": id,
+			})
 			continue
 		}
 
 		// 3. Borrar de la outbox (solo si se publicó)
-		_, err = tx.Exec(ctx, "DELETE FROM outbox WHERE id = $1", id)
+		_, err = tx.Exec(processCtx, "DELETE FROM outbox WHERE id = $1", id)
 		if err != nil {
-			log.Printf("error deleting outbox event %s: %v", id, err)
+			metrics.Inc("outbox_relay_delete_error_total")
+			logx.Error("error deleting outbox event", err, map[string]interface{}{
+				"component":      "outbox-relay",
+				"event_id":       id,
+				"event_type":     eventType,
+				"correlation_id": id,
+			})
 		} else {
-			log.Printf("Event %s processed and deleted from outbox", id)
+			metrics.Inc("outbox_relay_published_total")
+			logx.Info("outbox event published and deleted", map[string]interface{}{
+				"component":      "outbox-relay",
+				"event_id":       id,
+				"event_type":     eventType,
+				"correlation_id": id,
+			})
 			processedIDs = append(processedIDs, id)
 		}
 	}
 
 	if err := rows.Err(); err != nil {
-		log.Printf("error iterating outbox rows: %v", err)
+		metrics.Inc("outbox_relay_iter_error_total")
+		logx.Error("error iterating outbox rows", err, map[string]interface{}{
+			"component": "outbox-relay",
+		})
 		return
 	}
 
-	if err := tx.Commit(ctx); err != nil {
-		log.Printf("error committing outbox tx (processed=%d): %v", len(processedIDs), err)
+	if err := tx.Commit(processCtx); err != nil {
+		metrics.Inc("outbox_relay_commit_error_total")
+		logx.Error("error committing outbox tx", err, map[string]interface{}{
+			"component": "outbox-relay",
+			"processed": len(processedIDs),
+		})
 		return
+	}
+
+	if len(processedIDs) > 0 {
+		metrics.Add("outbox_relay_batch_processed_total", int64(len(processedIDs)))
+		logx.Info("outbox batch committed", map[string]interface{}{
+			"component": "outbox-relay",
+			"processed": len(processedIDs),
+		})
 	}
 }

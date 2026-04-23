@@ -14,8 +14,8 @@
         Demo mínima para mostrar un flujo event-driven real: crear orden, reservar stock y resolver estado final.
       </p>
       <div class="hero-links">
-        <a id="github-link" href="#" target="_blank" rel="noreferrer">GitHub (configurar)</a>
-        <a id="backend-link" href="#" target="_blank" rel="noreferrer">Backend URL (configurar)</a>
+        <a id="github-link" href="https://github.com/How-do-Ido-this/E-commerce" target="_blank" rel="noreferrer">GitHub</a>
+        <a id="backend-link" href="http://localhost:8080/health" target="_blank" rel="noreferrer">Backend health</a>
       </div>
     </header>
 
@@ -34,11 +34,15 @@
       <section class="grid-2">
         <article class="panel">
           <h2>Probar flujo demo</h2>
-          <p class="muted">En este PR la UI es mínima y no golpea backend real todavía. La conexión llega en PR #14.</p>
+          <p class="muted">Esta demo pega al backend real: crea orden y consulta su estado final.</p>
+
+          <label for="backend-url"><strong>Backend base URL</strong></label>
+          <input id="backend-url" class="input" type="text" value="http://localhost:8080" />
+          <small class="muted">Ejemplo local: http://localhost:8080</small>
 
           <div class="stack">
-            <button id="btn-success" class="btn btn-primary">Simular orden con stock</button>
-            <button id="btn-fail" class="btn btn-danger">Simular orden sin stock</button>
+            <button id="btn-success" class="btn btn-primary">Crear orden con stock</button>
+            <button id="btn-fail" class="btn btn-danger">Crear orden sin stock</button>
           </div>
 
           <h3>Payload demo</h3>
@@ -48,7 +52,7 @@
         <article class="panel">
           <h2>Resultado</h2>
           <div id="result" class="result">
-            <p class="muted">Todavía no ejecutaste ninguna prueba.</p>
+            <p class="muted">Todavía no ejecutaste ninguna prueba real.</p>
           </div>
 
           <h3>Checklist técnico</h3>
@@ -64,7 +68,7 @@
     </main>
 
     <footer class="container footer">
-      <small>Demo UI mínima (PR #13). Integración real con backend en PR #14.</small>
+      <small>Demo UI mínima conectada al backend real (PR #14).</small>
     </footer>
 
     <script src="./app.js"></script>

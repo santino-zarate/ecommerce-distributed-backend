@@ -48,7 +48,7 @@ Flujo principal:
 ├── db/
 │   ├── migrations/      # schema base reproducible
 │   └── seeds/           # datos demo reproducibles
-├── demo/                # demo web mínima (PR #13)
+├── demo/                # demo web mínima conectada al backend real (PR #14)
 ├── pkg/
 │   ├── events/          # Contratos de eventos
 │   └── rabbitmq/        # Cliente, topology setup, publish/consume
@@ -123,7 +123,7 @@ IDs demo que podés usar:
 go run main.go
 ```
 
-### 3.1) Ejecutar demo web mínima (PR #13)
+### 3.1) Ejecutar demo web mínima (PR #14)
 
 En otro terminal:
 
@@ -134,8 +134,7 @@ python3 -m http.server 5500
 
 Abrí: `http://localhost:5500`
 
-> En PR #13 la demo es visual/local (simulada).  
-> En PR #14 se conecta a endpoints reales del backend.
+En la UI, dejá `Backend base URL` en `http://localhost:8080` (o la URL donde tengas deployado tu backend).
 
 ### Variables de entorno soportadas
 

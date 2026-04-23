@@ -80,6 +80,16 @@ h1 {
   margin: .8rem 0 1rem;
 }
 
+.input {
+  width: 100%;
+  background: #0b1426;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: .6rem;
+  padding: .6rem .7rem;
+  margin-top: .4rem;
+}
+
 .btn {
   border: none;
   color: white;
@@ -91,6 +101,7 @@ h1 {
 
 .btn-primary { background: var(--primary); }
 .btn-danger { background: var(--danger); }
+.btn:disabled { opacity: .6; cursor: not-allowed; }
 
 .code {
   background: #0b1426;

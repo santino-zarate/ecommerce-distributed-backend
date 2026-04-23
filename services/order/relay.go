@@ -69,54 +69,23 @@ func (r *Relay) processOutbox(ctx context.Context) {
 	}
 	defer rows.Close()
 
-	processedIDs := make([]string, 0, 10)
+	type outboxEvent struct {
+		id        string
+		eventType string
+		payload   []byte
+	}
 
+	events := make([]outboxEvent, 0, 10)
 	for rows.Next() {
-		var id, eventType string
-		var payload []byte
-		if err := rows.Scan(&id, &eventType, &payload); err != nil {
+		var ev outboxEvent
+		if err := rows.Scan(&ev.id, &ev.eventType, &ev.payload); err != nil {
 			metrics.Inc("outbox_relay_scan_error_total")
 			logx.Error("error scanning outbox row", err, map[string]interface{}{
 				"component": "outbox-relay",
 			})
 			continue
 		}
-
-		// 2. Publicar en RabbitMQ usando el ID como correlation_id
-		headers := map[string]interface{}{
-			"correlation_id": id,
-		}
-		if err := r.rabbitClient.Publish(rabbitmq.OrdersExchange, eventType, payload, headers); err != nil {
-			metrics.Inc("outbox_relay_publish_error_total")
-			logx.Error("error publishing outbox event", err, map[string]interface{}{
-				"component":      "outbox-relay",
-				"event_id":       id,
-				"event_type":     eventType,
-				"correlation_id": id,
-			})
-			continue
-		}
-
-		// 3. Borrar de la outbox (solo si se publicó)
-		_, err = tx.Exec(processCtx, "DELETE FROM outbox WHERE id = $1", id)
-		if err != nil {
-			metrics.Inc("outbox_relay_delete_error_total")
-			logx.Error("error deleting outbox event", err, map[string]interface{}{
-				"component":      "outbox-relay",
-				"event_id":       id,
-				"event_type":     eventType,
-				"correlation_id": id,
-			})
-		} else {
-			metrics.Inc("outbox_relay_published_total")
-			logx.Info("outbox event published and deleted", map[string]interface{}{
-				"component":      "outbox-relay",
-				"event_id":       id,
-				"event_type":     eventType,
-				"correlation_id": id,
-			})
-			processedIDs = append(processedIDs, id)
-		}
+		events = append(events, ev)
 	}
 
 	if err := rows.Err(); err != nil {
@@ -125,6 +94,50 @@ func (r *Relay) processOutbox(ctx context.Context) {
 			"component": "outbox-relay",
 		})
 		return
+	}
+
+	// Importante: cerrar rows antes de ejecutar DELETE en la misma tx
+	// para evitar "conn busy" en pgx.
+	rows.Close()
+
+	processedIDs := make([]string, 0, len(events))
+	for _, ev := range events {
+
+		// 2. Publicar en RabbitMQ usando el ID como correlation_id
+		headers := map[string]interface{}{
+			"correlation_id": ev.id,
+		}
+		if err := r.rabbitClient.Publish(rabbitmq.OrdersExchange, ev.eventType, ev.payload, headers); err != nil {
+			metrics.Inc("outbox_relay_publish_error_total")
+			logx.Error("error publishing outbox event", err, map[string]interface{}{
+				"component":      "outbox-relay",
+				"event_id":       ev.id,
+				"event_type":     ev.eventType,
+				"correlation_id": ev.id,
+			})
+			continue
+		}
+
+		// 3. Borrar de la outbox (solo si se publicó)
+		_, err = tx.Exec(processCtx, "DELETE FROM outbox WHERE id = $1", ev.id)
+		if err != nil {
+			metrics.Inc("outbox_relay_delete_error_total")
+			logx.Error("error deleting outbox event", err, map[string]interface{}{
+				"component":      "outbox-relay",
+				"event_id":       ev.id,
+				"event_type":     ev.eventType,
+				"correlation_id": ev.id,
+			})
+		} else {
+			metrics.Inc("outbox_relay_published_total")
+			logx.Info("outbox event published and deleted", map[string]interface{}{
+				"component":      "outbox-relay",
+				"event_id":       ev.id,
+				"event_type":     ev.eventType,
+				"correlation_id": ev.id,
+			})
+			processedIDs = append(processedIDs, ev.id)
+		}
 	}
 
 	if err := tx.Commit(processCtx); err != nil {

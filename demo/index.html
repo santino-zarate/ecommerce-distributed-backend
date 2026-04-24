@@ -3,73 +3,290 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>E-commerce Event-Driven Demo</title>
+    <title>E-commerce Event-Driven Backend Demo</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <header class="hero container">
-      <p class="eyebrow">Portfolio Demo</p>
-      <h1>E-commerce Backend en Go con SAGA + Outbox</h1>
-      <p class="subtitle">
-        Demo mínima para mostrar un flujo event-driven real: crear orden, reservar stock y resolver estado final.
-      </p>
-      <div class="hero-links">
-        <a id="github-link" href="https://github.com/How-do-Ido-this/E-commerce" target="_blank" rel="noreferrer">GitHub</a>
-        <a id="backend-link" href="https://ecommerce-api-u14x.onrender.com/health" target="_blank" rel="noreferrer">Backend health</a>
-      </div>
-    </header>
+    <div class="page-shell">
+      <nav class="topbar container" aria-label="Main navigation">
+        <a class="brand" href="#top" aria-label="E-commerce backend demo home">
+          <span class="brand-mark">E</span>
+          <span>Event-Driven Backend</span>
+        </a>
+        <div class="nav-links">
+          <a href="#how-it-works">How it works</a>
+          <a href="#demo">Live demo</a>
+          <a href="#about">Developer</a>
+        </div>
+      </nav>
 
-    <main class="container">
-      <section class="panel">
-        <h2>Cómo funciona (resumen)</h2>
-        <ol>
-          <li><strong>POST /orders</strong> crea orden en estado <code>PENDING</code>.</li>
-          <li>Order guarda evento en <strong>outbox</strong>.</li>
-          <li>Relay publica <code>order.created</code> en RabbitMQ.</li>
-          <li>Inventory responde <code>inventory.reserved</code> o <code>inventory.failed</code>.</li>
-          <li>Order actualiza estado final: <code>CREATED</code> o <code>FAILED</code>.</li>
-        </ol>
-      </section>
+      <header id="top" class="hero container">
+        <p class="eyebrow">Portfolio Project · Live Backend Demo</p>
+        <h1>Event-Driven E-commerce Backend</h1>
+        <p class="subtitle">
+          A Go backend that uses PostgreSQL, RabbitMQ, SAGA and the Outbox Pattern to process orders asynchronously,
+          reserve stock safely and handle eventual consistency.
+        </p>
 
-      <section class="grid-2">
-        <article class="panel">
-          <h2>Probar flujo demo</h2>
-          <p class="muted">Esta demo pega al backend real: crea orden y consulta su estado final.</p>
+        <div class="tech-tags" aria-label="Main technologies">
+          <span>Go</span>
+          <span>PostgreSQL</span>
+          <span>RabbitMQ</span>
+          <span>SAGA</span>
+          <span>Outbox</span>
+        </div>
 
-          <label for="backend-url"><strong>Backend base URL</strong></label>
-          <input id="backend-url" class="input" type="text" value="https://ecommerce-api-u14x.onrender.com" />
-          <small class="muted">Backend deployado: https://ecommerce-api-u14x.onrender.com</small>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="#demo">Try the live flow</a>
+          <a class="btn btn-secondary" href="https://github.com/How-do-Ido-this/E-commerce" target="_blank" rel="noreferrer">View GitHub</a>
+        </div>
+      </header>
 
-          <div class="stack">
-            <button id="btn-success" class="btn btn-primary">Crear orden con stock</button>
-            <button id="btn-fail" class="btn btn-danger">Crear orden sin stock</button>
+      <main>
+        <section id="about" class="section container">
+          <article class="profile-card">
+            <div>
+              <p class="section-kicker">About the developer</p>
+              <h2>Santino Zarate</h2>
+              <p class="profile-role">Backend Developer · La Rioja, Argentina</p>
+              <p class="profile-bio">
+                Backend developer and advanced student in Information Systems, focused on reliable systems and applied backend architecture.
+                This project showcases real backend challenges: consistency, concurrency, asynchronous workflows and fault tolerance.
+              </p>
+              <div class="profile-tags" aria-label="Developer focus areas">
+                <span>Backend</span>
+                <span>Distributed Systems</span>
+                <span>Event-Driven Architectures</span>
+                <span>Applied AI</span>
+              </div>
+            </div>
+            <div class="profile-side">
+              <p class="profile-label">Seeking</p>
+              <strong>Remote Backend Junior opportunities</strong>
+              <p class="profile-label">Stack</p>
+              <span>Go · PostgreSQL · RabbitMQ · Docker · REST APIs</span>
+              <div class="profile-links">
+                <a href="https://github.com/How-do-Ido-this" target="_blank" rel="noreferrer">GitHub</a>
+                <span>LinkedIn · Coming soon</span>
+                <span>Portfolio · Coming soon</span>
+              </div>
+            </div>
+          </article>
+        </section>
+
+        <section id="how-it-works" class="section section-bordered">
+          <div class="container">
+            <div class="section-heading">
+              <p class="section-kicker">Architecture</p>
+              <h2>How the backend flow works</h2>
+              <p>
+                The UI only triggers the flow. The important work happens asynchronously in the backend.
+              </p>
+            </div>
+
+            <div class="flow" aria-label="Architecture flow">
+              <div class="flow-item">
+                <span class="flow-number">01</span>
+                <strong>Order API</strong>
+                <small>POST /orders receives the request.</small>
+              </div>
+              <div class="flow-arrow">→</div>
+              <div class="flow-item">
+                <span class="flow-number">02</span>
+                <strong>DB + Outbox</strong>
+                <small>Order and event are stored together.</small>
+              </div>
+              <div class="flow-arrow">→</div>
+              <div class="flow-item">
+                <span class="flow-number">03</span>
+                <strong>RabbitMQ</strong>
+                <small>Relay publishes order.created.</small>
+              </div>
+              <div class="flow-arrow">→</div>
+              <div class="flow-item">
+                <span class="flow-number">04</span>
+                <strong>Inventory</strong>
+                <small>Stock is reserved or rejected.</small>
+              </div>
+            </div>
+
+            <div class="info-grid four-cols">
+              <article class="info-card">
+                <span class="card-icon">↔</span>
+                <h3>Order creation</h3>
+                <p>The API creates an order and stores the event that must be published.</p>
+              </article>
+              <article class="info-card">
+                <span class="card-icon">⇢</span>
+                <h3>Async processing</h3>
+                <p>RabbitMQ decouples order creation from inventory reservation.</p>
+              </article>
+              <article class="info-card">
+                <span class="card-icon">✓</span>
+                <h3>Stock decision</h3>
+                <p>Inventory returns either reserved or failed depending on available stock.</p>
+              </article>
+              <article class="info-card">
+                <span class="card-icon">●</span>
+                <h3>Final status</h3>
+                <p>Order is updated to CREATED or FAILED after the SAGA response arrives.</p>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section id="demo" class="section container">
+          <div class="section-heading centered">
+            <p class="section-kicker">Live Demo</p>
+            <h2>Run the SAGA flow against the deployed backend</h2>
+            <p>
+              Test both paths: successful stock reservation and failed reservation due to insufficient stock.
+            </p>
           </div>
 
-          <h3>Payload demo</h3>
-          <pre id="payload-view" class="code"></pre>
-        </article>
+          <div class="demo-grid">
+            <article class="demo-card panel-highlight">
+              <div class="card-header">
+                <div>
+                  <p class="section-kicker">Input</p>
+                  <h3>Create an order</h3>
+                </div>
+                <span class="live-dot">Live</span>
+              </div>
 
-        <article class="panel">
-          <h2>Resultado</h2>
-          <div id="result" class="result">
-            <p class="muted">Todavía no ejecutaste ninguna prueba real.</p>
+              <label for="backend-url"><strong>Backend base URL</strong></label>
+              <input id="backend-url" class="input" type="text" value="https://ecommerce-api-u14x.onrender.com" />
+              <small class="muted">This demo calls POST /orders and polls GET /orders/:id.</small>
+
+              <div class="button-row">
+                <button id="btn-success" class="btn btn-primary">Create order with stock</button>
+                <button id="btn-fail" class="btn btn-danger">Create order without stock</button>
+              </div>
+
+              <div class="payload-block">
+                <div class="mini-title">Demo payload</div>
+                <pre id="payload-view" class="code"></pre>
+              </div>
+            </article>
+
+            <article class="demo-card result-card">
+              <div class="card-header">
+                <div>
+                  <p class="section-kicker">Output</p>
+                  <h3>SAGA result</h3>
+                </div>
+                <span class="status-pill status-idle">Waiting</span>
+              </div>
+
+              <div id="result" class="result">
+                <p class="muted">Run one of the scenarios to see the order status transition.</p>
+              </div>
+
+              <div class="legend">
+                <span><i class="dot dot-pending"></i>PENDING</span>
+                <span><i class="dot dot-created"></i>CREATED</span>
+                <span><i class="dot dot-failed"></i>FAILED</span>
+              </div>
+            </article>
+          </div>
+        </section>
+
+        <section class="section section-bordered">
+          <div class="container">
+            <div class="section-heading">
+              <p class="section-kicker">Backend concepts</p>
+              <h2>What this demo is proving</h2>
+              <p>Each card maps to a real backend problem solved by the project.</p>
+            </div>
+
+            <div class="info-grid">
+              <article class="info-card">
+                <span class="card-icon">S</span>
+                <h3>SAGA</h3>
+                <p>Order coordinates a multi-step flow and resolves the final state after Inventory responds.</p>
+              </article>
+              <article class="info-card">
+                <span class="card-icon">O</span>
+                <h3>Outbox</h3>
+                <p>The order and the event are persisted in the same transaction before publishing.</p>
+              </article>
+              <article class="info-card">
+                <span class="card-icon">R</span>
+                <h3>RabbitMQ</h3>
+                <p>Messages are routed through explicit keys with manual Ack/Nack in consumers.</p>
+              </article>
+              <article class="info-card">
+                <span class="card-icon">I</span>
+                <h3>Idempotency</h3>
+                <p>Consumers tolerate duplicate deliveries without applying the same business effect twice.</p>
+              </article>
+              <article class="info-card">
+                <span class="card-icon">N</span>
+                <h3>No overselling</h3>
+                <p>Stock reservation is concurrency-safe using an atomic PostgreSQL update.</p>
+              </article>
+            </div>
+          </div>
+        </section>
+
+        <section class="section container">
+          <div class="section-heading">
+            <p class="section-kicker">Technologies</p>
+            <h2>Built with a practical backend stack</h2>
+            <p>Small enough to understand, real enough to show distributed-systems tradeoffs.</p>
           </div>
 
-          <h3>Checklist técnico</h3>
-          <ul>
-            <li>✔ RabbitMQ (exchange/queues/bindings + ack/nack)</li>
-            <li>✔ Overselling mitigado (SQL atómico)</li>
-            <li>✔ Idempotencia en consumers</li>
-            <li>✔ Graceful shutdown + retry + timeouts</li>
-            <li>✔ Métricas básicas y health endpoint</li>
-          </ul>
-        </article>
-      </section>
-    </main>
+          <div class="info-grid four-cols">
+            <article class="info-card">
+              <span class="card-icon">Go</span>
+              <h3>Go</h3>
+              <p>HTTP API, workers, relay and domain logic in one deployable backend.</p>
+            </article>
+            <article class="info-card">
+              <span class="card-icon">DB</span>
+              <h3>PostgreSQL</h3>
+              <p>Orders, inventory, outbox and idempotency records with transactional guarantees.</p>
+            </article>
+            <article class="info-card">
+              <span class="card-icon">MQ</span>
+              <h3>RabbitMQ</h3>
+              <p>Asynchronous messaging between Order and Inventory through durable queues.</p>
+            </article>
+            <article class="info-card">
+              <span class="card-icon">API</span>
+              <h3>REST + Docker</h3>
+              <p>Simple HTTP surface, reproducible local infra and cloud deployment.</p>
+            </article>
+          </div>
+        </section>
 
-    <footer class="container footer">
-      <small>Demo UI mínima conectada al backend deployado (PR #16).</small>
-    </footer>
+        <section class="section container">
+          <div class="section-heading">
+            <p class="section-kicker">Links</p>
+            <h2>Explore the project</h2>
+          </div>
+
+          <div class="links-grid">
+            <a id="github-link" class="link-card" href="https://github.com/How-do-Ido-this/E-commerce" target="_blank" rel="noreferrer">
+              <span>GitHub Repository</span>
+              <small>Source code, README and implementation details.</small>
+            </a>
+            <a id="backend-link" class="link-card" href="https://ecommerce-api-u14x.onrender.com/health" target="_blank" rel="noreferrer">
+              <span>Backend Health</span>
+              <small>Check the deployed Go API health endpoint.</small>
+            </a>
+            <a id="metrics-link" class="link-card" href="https://ecommerce-api-u14x.onrender.com/metrics" target="_blank" rel="noreferrer">
+              <span>Metrics</span>
+              <small>Basic operational counters exposed by the backend.</small>
+            </a>
+          </div>
+        </section>
+      </main>
+
+      <footer class="footer container">
+        <small>Built with Go · PostgreSQL · RabbitMQ · Render · CloudAMQP</small>
+      </footer>
+    </div>
 
     <script src="./app.js"></script>
   </body>

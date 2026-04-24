@@ -7,6 +7,7 @@ const backendInput = document.getElementById("backend-url");
 const payloadView = document.getElementById("payload-view");
 const result = document.getElementById("result");
 const backendLink = document.getElementById("backend-link");
+const metricsLink = document.getElementById("metrics-link");
 const btnSuccess = document.getElementById("btn-success");
 const btnFail = document.getElementById("btn-fail");
 
@@ -26,6 +27,9 @@ function getBackendURL() {
   const base = normalizeBaseURL(backendInput.value);
   localStorage.setItem("demo_backend_url", base);
   backendLink.href = `${base}/health`;
+  if (metricsLink) {
+    metricsLink.href = `${base}/metrics`;
+  }
   return base;
 }
 
@@ -39,21 +43,45 @@ function showPayload(productId) {
   return payload;
 }
 
+function statusClass(status) {
+  return `status-${String(status || "idle").toLowerCase()}`;
+}
+
+function statusBadge(status) {
+  return `<span class="status-pill ${statusClass(status)}">${status}</span>`;
+}
+
+function resultRow(label, value) {
+  return `
+    <div class="result-row">
+      <span class="result-label">${label}</span>
+      <span class="result-value">${value}</span>
+    </div>
+  `;
+}
+
 function setLoading(message) {
-  result.innerHTML = `<p>${message}</p>`;
+  result.innerHTML = `
+    <p>${statusBadge("PENDING")}</p>
+    <p>${message}</p>
+  `;
 }
 
 function setError(message) {
-  result.innerHTML = `<p><strong>Error:</strong> ${message}</p>`;
+  result.innerHTML = `
+    <p>${statusBadge("ERROR")}</p>
+    <p><strong>Error:</strong> ${message}</p>
+  `;
 }
 
 function setResult({ orderId, initialStatus, finalStatus, checks, tookMs }) {
   result.innerHTML = `
-    <p><strong>order_id:</strong> ${orderId}</p>
-    <p><strong>initial_status:</strong> ${initialStatus}</p>
-    <p><strong>final_status:</strong> ${finalStatus}</p>
-    <p><strong>polls:</strong> ${checks}</p>
-    <p><strong>took_ms:</strong> ${tookMs}</p>
+    <p>${statusBadge(finalStatus)}</p>
+    ${resultRow("order_id", orderId)}
+    ${resultRow("initial_status", statusBadge(initialStatus))}
+    ${resultRow("final_status", statusBadge(finalStatus))}
+    ${resultRow("polls", checks)}
+    ${resultRow("took_ms", tookMs)}
   `;
 }
 

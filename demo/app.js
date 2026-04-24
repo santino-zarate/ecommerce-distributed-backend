@@ -1,7 +1,7 @@
 const demoUserId = "11111111-1111-1111-1111-111111111111";
 const productWithStock = "22222222-2222-2222-2222-222222222222";
 const productWithoutStock = "33333333-3333-3333-3333-333333333333";
-const defaultBackendURL = "http://localhost:8080";
+const defaultBackendURL = "https://ecommerce-api-u14x.onrender.com";
 
 const backendInput = document.getElementById("backend-url");
 const payloadView = document.getElementById("payload-view");

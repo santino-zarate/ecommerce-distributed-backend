@@ -123,7 +123,7 @@ IDs demo que podés usar:
 go run main.go
 ```
 
-### 3.1) Ejecutar demo web mínima (PR #14)
+### 3.1) Ejecutar demo web mínima (PR #14/PR #16)
 
 En otro terminal:
 
@@ -134,7 +134,17 @@ python3 -m http.server 5500
 
 Abrí: `http://localhost:5500`
 
-En la UI, dejá `Backend base URL` en `http://localhost:8080` (o la URL donde tengas deployado tu backend).
+En la UI, `Backend base URL` apunta por defecto al backend deployado:
+
+```text
+https://ecommerce-api-u14x.onrender.com
+```
+
+Para desarrollo local podés cambiarlo a:
+
+```text
+http://localhost:8080
+```
 
 ### Variables de entorno soportadas
 
@@ -254,6 +264,40 @@ curl https://<tu-api>.onrender.com/orders/<ORDER_ID>
 Esto no convierte el proyecto en producción enterprise. Sí demuestra algo importante para portfolio:
 
 > La API es deployable, configurable por entorno y capaz de hablar con PostgreSQL/RabbitMQ reales fuera de tu máquina.
+
+## 🖥️ Deploy demo web estática en Render (PR #16)
+
+La demo web está en `demo/` y es HTML/CSS/JS puro. No necesita Node, bundler ni build.
+
+En Render:
+
+```text
+New → Static Site → conectar repo GitHub
+```
+
+Configuración recomendada:
+
+```text
+Name: ecommerce-demo
+Branch: main
+Root Directory: demo
+Build Command: dejar vacío
+Publish Directory: .
+```
+
+La demo apunta por defecto a:
+
+```text
+https://ecommerce-api-u14x.onrender.com
+```
+
+Validación esperada:
+
+1. Abrir la URL pública de la demo.
+2. Click en **Crear orden con stock** → estado final `CREATED`.
+3. Click en **Crear orden sin stock** → estado final `FAILED`.
+
+> Si querés probar contra backend local, cambiá manualmente el input `Backend base URL` a `http://localhost:8080`.
 
 ### Endpoints base
 

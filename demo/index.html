@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="es">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -24,8 +24,11 @@
         <p class="eyebrow">Portfolio Project · Live Backend Demo</p>
         <h1>Event-Driven E-commerce Backend</h1>
         <p class="subtitle">
-          A Go backend that uses PostgreSQL, RabbitMQ, SAGA and the Outbox Pattern to process orders asynchronously,
-          reserve stock safely and handle eventual consistency.
+          A production-minded backend demo showing asynchronous order processing, safe stock reservation and eventual consistency
+          with Go, PostgreSQL, RabbitMQ, SAGA and the Outbox Pattern.
+        </p>
+        <p class="hero-statement">
+          This is not a CRUD demo — it models a real asynchronous system with consistency guarantees.
         </p>
 
         <div class="tech-tags" aria-label="Main technologies">
@@ -47,11 +50,13 @@
           <article class="profile-card">
             <div>
               <p class="section-kicker">About the developer</p>
-              <h2>Santino Zarate</h2>
-              <p class="profile-role">Backend Developer · La Rioja, Argentina</p>
+              <h2>Backend Developer | Distributed Systems</h2>
+              <p class="profile-role">Santino Zarate · La Rioja, Argentina</p>
               <p class="profile-bio">
-                Backend developer and advanced student in Information Systems, focused on reliable systems and applied backend architecture.
-                This project showcases real backend challenges: consistency, concurrency, asynchronous workflows and fault tolerance.
+                Backend developer focused on building reliable systems that handle real-world challenges such as concurrency, data consistency and asynchronous workflows.
+              </p>
+              <p class="profile-bio">
+                This project demonstrates an event-driven backend using Go, PostgreSQL and RabbitMQ, applying patterns like SAGA, Outbox and idempotency to ensure safe stock handling and fault tolerance.
               </p>
               <div class="profile-tags" aria-label="Developer focus areas">
                 <span>Backend</span>
@@ -84,7 +89,7 @@
               </p>
             </div>
 
-            <div class="flow" aria-label="Architecture flow">
+            <div class="flow" aria-label="Architecture flow from left to right">
               <div class="flow-item">
                 <span class="flow-number">01</span>
                 <strong>Order API</strong>
@@ -268,15 +273,15 @@
 
           <div class="links-grid">
             <a id="github-link" class="link-card" href="https://github.com/How-do-Ido-this/E-commerce" target="_blank" rel="noreferrer">
-              <span>GitHub Repository</span>
+              <span>GitHub Repository <em>Source code</em></span>
               <small>Source code, README and implementation details.</small>
             </a>
             <a id="backend-link" class="link-card" href="https://ecommerce-api-u14x.onrender.com/health" target="_blank" rel="noreferrer">
-              <span>Backend Health</span>
+              <span>Backend Health <em>Live API</em></span>
               <small>Check the deployed Go API health endpoint.</small>
             </a>
             <a id="metrics-link" class="link-card" href="https://ecommerce-api-u14x.onrender.com/metrics" target="_blank" rel="noreferrer">
-              <span>Metrics</span>
+              <span>Metrics <em>Monitoring</em></span>
               <small>Basic operational counters exposed by the backend.</small>
             </a>
           </div>

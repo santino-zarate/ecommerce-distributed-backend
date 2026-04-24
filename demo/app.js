@@ -47,8 +47,16 @@ function statusClass(status) {
   return `status-${String(status || "idle").toLowerCase()}`;
 }
 
+function statusIcon(status) {
+  const normalized = String(status || "").toUpperCase();
+  if (normalized === "CREATED") return "✔";
+  if (normalized === "FAILED" || normalized === "ERROR") return "✖";
+  if (normalized === "PENDING") return "●";
+  return "•";
+}
+
 function statusBadge(status) {
-  return `<span class="status-pill ${statusClass(status)}">${status}</span>`;
+  return `<span class="status-pill ${statusClass(status)}"><span class="status-icon">${statusIcon(status)}</span>${status}</span>`;
 }
 
 function resultRow(label, value) {
@@ -89,13 +97,13 @@ async function pollOrderStatus(baseURL, orderId, maxChecks = 12, delayMs = 1000)
   for (let i = 1; i <= maxChecks; i++) {
     const res = await fetch(`${baseURL}/orders/${orderId}`);
     if (!res.ok) {
-      throw new Error(`GET /orders/:id devolvió ${res.status}`);
+      throw new Error(`GET /orders/:id returned ${res.status}`);
     }
 
     const order = await res.json();
     const status = readOrderStatus(order);
     if (!status) {
-      throw new Error("GET /orders/:id devolvió payload sin status");
+      throw new Error("GET /orders/:id returned a payload without status");
     }
     if (status !== "PENDING") {
       return { status, checks: i };
@@ -112,7 +120,7 @@ async function runScenario(productId) {
   const payload = showPayload(productId);
   const startedAt = Date.now();
 
-  setLoading("Creando orden...");
+  setLoading("Creating order and waiting for the asynchronous workflow...");
   const createRes = await fetch(`${baseURL}/orders`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -121,17 +129,17 @@ async function runScenario(productId) {
 
   if (!createRes.ok) {
     const body = await createRes.text();
-    throw new Error(`POST /orders devolvió ${createRes.status}. ${body}`);
+    throw new Error(`POST /orders returned ${createRes.status}. ${body}`);
   }
 
   const created = await createRes.json();
   const orderId = readOrderId(created);
   const initialStatus = readOrderStatus(created) || "PENDING";
   if (!orderId) {
-    throw new Error(`POST /orders devolvió payload sin id: ${JSON.stringify(created)}`);
+    throw new Error(`POST /orders returned a payload without id: ${JSON.stringify(created)}`);
   }
 
-  setLoading(`Orden ${orderId} creada en ${initialStatus}. Esperando resolución de saga...`);
+  setLoading(`Order ${orderId} was created as ${initialStatus}. Waiting for the SAGA result...`);
   const polled = await pollOrderStatus(baseURL, orderId);
 
   setResult({
@@ -149,7 +157,7 @@ async function handleRun(productId) {
   try {
     await runScenario(productId);
   } catch (err) {
-    setError(err.message || "falló la ejecución");
+    setError(err.message || "the demo execution failed");
   } finally {
     btnSuccess.disabled = false;
     btnFail.disabled = false;

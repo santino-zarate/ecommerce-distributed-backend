@@ -8,7 +8,7 @@
 
 INSERT INTO inventory (product_id, quantity_available, reserved_quantity, updated_at)
 VALUES
-  ('22222222-2222-2222-2222-222222222222', 10, 0, NOW()),
+  ('22222222-2222-2222-2222-222222222222', 999, 0, NOW()),
   ('33333333-3333-3333-3333-333333333333', 0, 0, NOW())
 ON CONFLICT (product_id) DO UPDATE SET
   quantity_available = EXCLUDED.quantity_available,

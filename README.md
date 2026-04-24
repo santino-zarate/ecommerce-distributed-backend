@@ -142,9 +142,123 @@ En la UI, dejá `Backend base URL` en `http://localhost:8080` (o la URL donde te
 - `DATABASE_URL` (default local de desarrollo)
 - `RABBITMQ_URL` (default local de desarrollo)
 
+## 🌐 Deploy backend en Render (PR #15)
+
+El backend está preparado para deploy real usando variables de entorno. La idea es mantenerlo simple:
+
+- PostgreSQL managed en Render.
+- RabbitMQ managed en CloudAMQP.
+- API Go como Web Service en Render.
+
+### 1) Crear PostgreSQL
+
+En Render:
+
+```text
+New → PostgreSQL
+```
+
+Guardá la **Internal Database URL**. Esa URL va en la API como:
+
+```text
+DATABASE_URL=<internal database url>
+```
+
+### 2) Crear RabbitMQ en CloudAMQP
+
+Crear una instancia RabbitMQ en CloudAMQP, idealmente en una región cercana a la API y PostgreSQL.
+
+Configuración usada para la demo:
+
+```text
+Name: ecommerce-rabbitmq
+Region: us-west-2 / Oregon
+```
+
+CloudAMQP entrega una URL AMQP/AMQPS. Usá la variante TLS (`amqps://`) como variable de entorno de la API:
+
+```text
+RABBITMQ_URL=amqps://<user>:<password>@<host>.cloudamqp.com/<vhost>
+```
+
+> Importante: no usar `localhost` en deploy. Dentro del contenedor/servicio de la API, `localhost` es la API misma, no RabbitMQ ni PostgreSQL.
+
+### 3) Crear Web Service para la API
+
+En Render:
+
+```text
+New → Web Service → conectar repo GitHub
+```
+
+Configuración recomendada:
+
+```text
+Language: Go
+Branch: main
+Build Command: go build -tags netgo -ldflags '-s -w' -o app
+Start Command: ./app
+Health Check Path: /health
+```
+
+Variables de entorno:
+
+```text
+PORT=10000
+DATABASE_URL=<internal database url de Render>
+RABBITMQ_URL=<amqps url de CloudAMQP>
+```
+
+El código ya lee `PORT`, `DATABASE_URL` y `RABBITMQ_URL`, por eso no hay que cambiar lógica de negocio para deployar.
+
+> También existe un `Dockerfile` para correr la API como imagen Docker si se quiere mover este deploy a otro proveedor o cambiar Render a runtime Docker más adelante.
+
+### 4) Cargar datos demo
+
+El backend crea tablas core al arrancar, pero los productos demo se cargan con:
+
+```bash
+db/seeds/001_demo.sql
+```
+
+Ejecutá ese SQL en la base de Render para poder probar el flujo con los IDs demo.
+
+### 5) Probar API deployada
+
+```bash
+curl https://<tu-api>.onrender.com/
+```
+
+Health check:
+
+```bash
+curl https://<tu-api>.onrender.com/health
+```
+
+Crear orden con stock:
+
+```bash
+curl -X POST https://<tu-api>.onrender.com/orders \
+  -H "Content-Type: application/json" \
+  -d '{"userId":"11111111-1111-1111-1111-111111111111","productId":"22222222-2222-2222-2222-222222222222","quantity":1}'
+```
+
+Consultar estado:
+
+```bash
+curl https://<tu-api>.onrender.com/orders/<ORDER_ID>
+```
+
+### Qué significa este deploy
+
+Esto no convierte el proyecto en producción enterprise. Sí demuestra algo importante para portfolio:
+
+> La API es deployable, configurable por entorno y capaz de hablar con PostgreSQL/RabbitMQ reales fuera de tu máquina.
+
 ### Endpoints base
 
 - `GET /health` → health check simple (`200 {"status":"ok"}`)
+- `GET /` → metadata mínima del backend deployado
 - `GET /metrics` → métricas operativas básicas en JSON
 - `GET /orders/:id` → consultar estado de orden
 - `POST /orders` → crear orden

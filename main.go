@@ -123,6 +123,18 @@ func main() {
 		AllowHeaders: []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept},
 	}))
 
+	e.GET("/", func(c echo.Context) error {
+		return c.JSON(200, map[string]any{
+			"service": "e-commerce event-driven backend",
+			"status":  "ok",
+			"endpoints": []string{
+				"GET /health",
+				"GET /metrics",
+				"GET /orders/:id",
+				"POST /orders",
+			},
+		})
+	})
 	e.GET("/health", func(c echo.Context) error {
 		return c.JSON(200, map[string]string{"status": "ok"})
 	})

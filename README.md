@@ -1,347 +1,283 @@
-# E-commerce Event-Driven Backend (Go)
+# E-commerce Event-Driven Backend
 
-Backend de e-commerce orientado a **arquitectura event-driven**, construido en Go con foco en patrones de consistencia distribuida.
+Backend de e-commerce en Go con procesamiento asíncrono real usando PostgreSQL, RabbitMQ, SAGA y Outbox Pattern.
 
-## ✨ Highlights técnicos
+No es un CRUD simple: el proyecto modela un flujo de orden + reserva de stock con consistencia eventual, idempotencia y protección contra overselling.
 
-- **Go + Echo + pgx + RabbitMQ**
-- **SAGA orchestration** (Order inicia, Inventory responde, Order cierra estado)
-- **Outbox Pattern** para consistencia entre DB y broker
-- **Routing explícito** por `routing_key` (sin inferencia por JSON)
-- **Channels RabbitMQ separados** por responsabilidad (topology/publish/consume)
-- **Ack/Nack manual** en consumers
-- **Fix anti-overselling** con reserva atómica en PostgreSQL
-- **Validación robusta de input** en el borde HTTP
-- **Graceful shutdown** (señales + cierre ordenado de HTTP/workers/recursos)
-- **Re-suscripción automática** de consumers ante corte de canal RabbitMQ
-- **Timeouts operativos** en startup y procesamiento crítico
-- **Startup retry** con backoff para DB/RabbitMQ/topology
-- **Logs estructurados** con `correlation_id` para trazabilidad
-- **Idempotencia final** con persistencia de outcome en inventory
-- **Métricas operativas básicas** en endpoint `/metrics`
-- **Tests de hardening** (handler, concurrencia inventory, relay/outbox)
+## Live Demo
 
-## 🧱 Stack
+- **Demo web:** https://ecommerce-demo-d0vt.onrender.com
+- **Backend health:** https://ecommerce-api-u14x.onrender.com/health
+- **Backend root:** https://ecommerce-api-u14x.onrender.com
 
-- **Lenguaje:** Go 1.26
-- **HTTP:** Echo v4
-- **DB:** PostgreSQL (pgx/v5)
-- **Mensajería:** RabbitMQ (`amqp091-go`)
-- **Infra local:** Docker Compose
-- **Testing de integración:** Testcontainers
+Cómo probarlo rápido:
 
-## 🧠 Arquitectura (resumen)
+1. Abrí la demo web.
+2. Click en **Crear orden con stock** → el estado final esperado es `CREATED`.
+3. Click en **Crear orden sin stock** → el estado final esperado es `FAILED`.
+
+La demo está conectada al backend deployado. No necesitás correr nada localmente para ver el flujo funcionando.
+
+## What this project demonstrates
+
+Este proyecto demuestra decisiones y problemas reales de backend:
+
+- **Event-driven architecture** con RabbitMQ.
+- **SAGA pattern** para coordinar el flujo Order → Inventory → Order.
+- **Outbox Pattern** para no perder eventos entre PostgreSQL y RabbitMQ.
+- **Idempotency** para tolerar mensajes duplicados.
+- **Concurrency-safe stock reservation** para evitar overselling.
+- **Async processing** con consumers, routing keys y Ack/Nack manual.
+- **Graceful shutdown**, timeouts y retry de startup.
+- **Logs estructurados** con `correlation_id`.
+- **Métricas básicas** expuestas vía `/metrics`.
+
+## Architecture
 
 Flujo principal:
 
-1. `POST /orders`
-2. `OrderService` guarda orden + evento en `outbox` (misma transacción)
-3. `Relay` publica `order.created` en exchange `orders`
-4. `InventoryConsumer` procesa y publica `inventory.reserved` o `inventory.failed`
-5. `OrderConsumer` consume respuesta y actualiza estado de la orden
-
-## 📂 Estructura relevante
-
 ```text
-.
-├── main.go
-├── db/
-│   ├── migrations/      # schema base reproducible
-│   └── seeds/           # datos demo reproducibles
-├── demo/                # demo web mínima conectada al backend real (PR #14)
-├── pkg/
-│   ├── events/          # Contratos de eventos
-│   └── rabbitmq/        # Cliente, topology setup, publish/consume
-├── services/
-│   ├── order/           # API + saga orchestration + outbox relay
-│   ├── inventory/       # Reserva de stock + respuesta de saga
-│   ├── product/
-│   └── user/
-└── docs/
-    ├── ARQUITECTURA_RESUMIDA.md
-    ├── rabbitmqclient.md
-    ├── inventoryconsumer.md
-    ├── orderconsumer.md
-    ├── relay.md
-    └── services.md
+User
+  ↓
+Demo Web
+  ↓
+Go API
+  ↓
+PostgreSQL: orders + outbox
+  ↓
+Outbox Relay
+  ↓
+RabbitMQ
+  ↓
+Inventory Consumer
+  ↓
+RabbitMQ
+  ↓
+Order Consumer
+  ↓
+PostgreSQL: order status updated
 ```
 
-## 🔐 Robustez aplicada
+En simple:
 
-- Reserva de stock **atómica** (`UPDATE ... WHERE quantity_available >= qty`) para evitar overselling.
-- Handler de órdenes con validación de UUID y `quantity > 0`.
-- `order.Service` desacoplado de implementación concreta (sin type assertion a Postgres).
-- Relay con `FOR UPDATE SKIP LOCKED` + orden por `created_at`.
+- La API recibe una orden.
+- La orden se guarda en PostgreSQL junto con un evento en la tabla `outbox`.
+- Un relay toma eventos pendientes y los publica en RabbitMQ.
+- Inventory intenta reservar stock.
+- Inventory responde con éxito o fallo.
+- Order consume esa respuesta y actualiza el estado final de la orden.
 
-## ✅ Tests relevantes
+Esto permite que el sistema procese pasos de forma asíncrona sin depender de una única request HTTP larga.
 
-- `TestTryReserveStockConcurrent_NoOversell` (concurrencia real)
-- `handler_test.go` (inputs inválidos + request válida)
-- `TestRelayProcessOutbox_PublishesAndDeletes` (outbox → broker → delete)
+## How it works
 
-## 🚀 Cómo correr
+1. `POST /orders` recibe `userId`, `productId` y `quantity`.
+2. Order crea la orden en estado inicial y guarda un evento `order.created` en `outbox` dentro de la misma transacción.
+3. El relay lee la outbox y publica el evento en RabbitMQ.
+4. `InventoryConsumer` consume `order.created`.
+5. Inventory intenta reservar stock con una operación atómica en PostgreSQL.
+6. Si hay stock, publica `inventory.reserved`; si no hay stock, publica `inventory.failed`.
+7. `OrderConsumer` consume la respuesta y actualiza la orden a `CREATED` o `FAILED`.
+8. La demo consulta `GET /orders/:id` hasta ver el estado final.
 
-### Requisitos
+## Key technical decisions
 
-- Docker + Docker Compose
+### Why RabbitMQ instead of Kafka?
+
+RabbitMQ encaja mejor para este proyecto porque el flujo necesita mensajería de comandos/eventos con routing simple, Ack/Nack manual y colas bien definidas.
+
+Kafka sería válido para event streaming, auditoría o alto volumen, pero para este caso agregaría complejidad operativa innecesaria.
+
+### Why Outbox Pattern?
+
+Crear la orden en DB y publicar un evento en RabbitMQ son dos operaciones distintas. Si la DB confirma pero el publish falla, la orden queda creada pero nadie procesa el stock.
+
+La outbox reduce ese riesgo: la orden y el evento se guardan juntos en la misma transacción. Después, un relay se encarga de publicar lo pendiente.
+
+### Why idempotency?
+
+RabbitMQ puede entregar mensajes más de una vez. Eso es normal en sistemas at-least-once.
+
+Por eso los consumers no pueden asumir “este mensaje llega una sola vez”. El sistema persiste resultados procesados para que repetir un evento no rompa el estado ni reserve stock dos veces.
+
+### Why not separate microservices yet?
+
+El proyecto usa dominios separados (`order`, `inventory`, etc.) pero corre como un backend Go único.
+
+Esto es intencional: permite demostrar SAGA, Outbox y mensajería sin sumar la complejidad de deployar múltiples servicios desde el primer día. La separación lógica ya existe; separar procesos sería un paso posterior.
+
+## Problems solved
+
+### Overselling
+
+Problema: dos órdenes concurrentes podrían comprar el mismo stock.
+
+Solución: reserva atómica en PostgreSQL usando una condición de stock disponible. Si no hay stock suficiente, la actualización no aplica.
+
+### Duplicate messages
+
+Problema: en mensajería real, un consumer puede recibir el mismo evento más de una vez.
+
+Solución: idempotencia por evento/consumer y persistencia del resultado procesado.
+
+### Publish failures
+
+Problema: guardar en DB y publicar en RabbitMQ no es una operación atómica distribuida.
+
+Solución: Outbox Pattern. Primero se persiste el evento en DB; luego el relay publica a RabbitMQ.
+
+### Eventual consistency
+
+Problema: la orden no puede saber inmediatamente si inventory reservó stock porque el proceso es asíncrono.
+
+Solución: la orden empieza en estado pendiente y luego se actualiza a `CREATED` o `FAILED` cuando llega la respuesta de Inventory.
+
+## API Endpoints
+
+### `POST /orders`
+
+Crea una orden y dispara el flujo SAGA.
+
+```bash
+curl -X POST https://ecommerce-api-u14x.onrender.com/orders \
+  -H "Content-Type: application/json" \
+  -d '{"userId":"11111111-1111-1111-1111-111111111111","productId":"22222222-2222-2222-2222-222222222222","quantity":1}'
+```
+
+### `GET /orders/:id`
+
+Consulta el estado actual de una orden.
+
+```bash
+curl https://ecommerce-api-u14x.onrender.com/orders/<ORDER_ID>
+```
+
+> Reemplazá `<ORDER_ID>` por el ID real, sin los signos `< >`.
+
+### `GET /health`
+
+Health check simple del backend.
+
+```bash
+curl https://ecommerce-api-u14x.onrender.com/health
+```
+
+### `GET /metrics`
+
+Expone métricas operativas básicas en JSON.
+
+```bash
+curl https://ecommerce-api-u14x.onrender.com/metrics
+```
+
+## Running locally
+
+Requisitos:
+
 - Go 1.26+
+- Docker + Docker Compose
 
-### 1) Infra
-
-```bash
-docker-compose up -d
-```
-
-### 2) Dependencias
+### 1. Levantar infraestructura
 
 ```bash
-go mod tidy
+docker compose up -d
 ```
 
-### 2.1) Schema reproducible (PR deploy)
+Esto levanta PostgreSQL y RabbitMQ local.
 
-- El servicio crea automáticamente tablas core al iniciar (`orders`, `inventory`, `outbox`, `processed_events`).
-- También tenés el SQL base en `db/migrations/001_init.sql` por si querés inicializar manualmente en otro entorno.
-
-### 2.2) Demo seed reproducible (PR portfolio)
-
-Para dejar datos demo listos (un producto con stock y otro sin stock):
-
-```bash
-docker compose exec -T postgres psql -U user -d ecommerce_db < db/seeds/001_demo.sql
-```
-
-IDs demo que podés usar:
-
-- `userId`: `11111111-1111-1111-1111-111111111111`
-- `productId` con stock: `22222222-2222-2222-2222-222222222222`
-- `productId` sin stock: `33333333-3333-3333-3333-333333333333`
-
-### 3) Ejecutar API
+### 2. Ejecutar backend
 
 ```bash
 go run main.go
 ```
 
-### 3.1) Ejecutar demo web mínima (PR #14/PR #16)
+Por defecto usa:
 
-En otro terminal:
+```text
+PORT=8080
+DATABASE_URL=postgres://user:password@localhost:5432/ecommerce_db
+RABBITMQ_URL=amqp://guest:guest@localhost:5672/
+```
+
+### 3. Cargar datos demo
+
+```bash
+docker compose exec -T postgres psql -U user -d ecommerce_db < db/seeds/001_demo.sql
+```
+
+Datos demo:
+
+```text
+userId:              11111111-1111-1111-1111-111111111111
+productId con stock: 22222222-2222-2222-2222-222222222222
+productId sin stock: 33333333-3333-3333-3333-333333333333
+```
+
+Opcional: correr la demo web local:
 
 ```bash
 cd demo
 python3 -m http.server 5500
 ```
 
-Abrí: `http://localhost:5500`
-
-En la UI, `Backend base URL` apunta por defecto al backend deployado:
+Abrir:
 
 ```text
-https://ecommerce-api-u14x.onrender.com
+http://localhost:5500
 ```
 
-Para desarrollo local podés cambiarlo a:
+## Deployment
 
-```text
-http://localhost:8080
-```
+El proyecto está deployado con servicios reales:
 
-### Variables de entorno soportadas
+- **API Go:** Render Web Service
+- **PostgreSQL:** Render PostgreSQL
+- **RabbitMQ:** CloudAMQP
+- **Demo web:** Render Static Site
 
-- `PORT` (default: `8080`)
-- `DATABASE_URL` (default local de desarrollo)
-- `RABBITMQ_URL` (default local de desarrollo)
-
-## 🌐 Deploy backend en Render (PR #15)
-
-El backend está preparado para deploy real usando variables de entorno. La idea es mantenerlo simple:
-
-- PostgreSQL managed en Render.
-- RabbitMQ managed en CloudAMQP.
-- API Go como Web Service en Render.
-
-### 1) Crear PostgreSQL
-
-En Render:
-
-```text
-New → PostgreSQL
-```
-
-Guardá la **Internal Database URL**. Esa URL va en la API como:
-
-```text
-DATABASE_URL=<internal database url>
-```
-
-### 2) Crear RabbitMQ en CloudAMQP
-
-Crear una instancia RabbitMQ en CloudAMQP, idealmente en una región cercana a la API y PostgreSQL.
-
-Configuración usada para la demo:
-
-```text
-Name: ecommerce-rabbitmq
-Region: us-west-2 / Oregon
-```
-
-CloudAMQP entrega una URL AMQP/AMQPS. Usá la variante TLS (`amqps://`) como variable de entorno de la API:
-
-```text
-RABBITMQ_URL=amqps://<user>:<password>@<host>.cloudamqp.com/<vhost>
-```
-
-> Importante: no usar `localhost` en deploy. Dentro del contenedor/servicio de la API, `localhost` es la API misma, no RabbitMQ ni PostgreSQL.
-
-### 3) Crear Web Service para la API
-
-En Render:
-
-```text
-New → Web Service → conectar repo GitHub
-```
-
-Configuración recomendada:
-
-```text
-Language: Go
-Branch: main
-Build Command: go build -tags netgo -ldflags '-s -w' -o app
-Start Command: ./app
-Health Check Path: /health
-```
-
-Variables de entorno:
+Variables usadas por la API:
 
 ```text
 PORT=10000
-DATABASE_URL=<internal database url de Render>
-RABBITMQ_URL=<amqps url de CloudAMQP>
+DATABASE_URL=<Render PostgreSQL internal URL>
+RABBITMQ_URL=<CloudAMQP AMQPS URL>
 ```
 
-El código ya lee `PORT`, `DATABASE_URL` y `RABBITMQ_URL`, por eso no hay que cambiar lógica de negocio para deployar.
+La API no depende de `localhost` en deploy. Las conexiones a infraestructura se configuran por variables de entorno.
 
-> También existe un `Dockerfile` para correr la API como imagen Docker si se quiere mover este deploy a otro proveedor o cambiar Render a runtime Docker más adelante.
+## Tradeoffs & Future Improvements
 
-### 4) Cargar datos demo
+Tradeoffs intencionales:
 
-El backend crea tablas core al arrancar, pero los productos demo se cargan con:
+- No hay UI completa de e-commerce. La demo existe para probar el flujo backend, no para simular una tienda real.
+- No hay autenticación. El foco está en consistencia, mensajería y procesamiento asíncrono.
+- No está separado en microservicios físicos todavía. La separación actual es por dominio dentro de un backend Go para mantener el proyecto entendible y deployable.
+- El health check es simple; no valida DB/RabbitMQ en profundidad.
 
-```bash
-db/seeds/001_demo.sql
-```
+Mejoras posibles:
 
-Ejecutá ese SQL en la base de Render para poder probar el flujo con los IDs demo.
+- Dead Letter Queues para mensajes que fallan repetidamente.
+- Retry policy más avanzada para outbox con attempts/backoff persistidos.
+- Endpoint `/ready` que valide PostgreSQL y RabbitMQ.
+- Distributed tracing para seguir una orden de punta a punta.
+- Autenticación y ownership real de órdenes.
+- Separar Order e Inventory en procesos independientes si el proyecto evoluciona.
 
-### 5) Probar API deployada
-
-```bash
-curl https://<tu-api>.onrender.com/
-```
-
-Health check:
-
-```bash
-curl https://<tu-api>.onrender.com/health
-```
-
-Crear orden con stock:
-
-```bash
-curl -X POST https://<tu-api>.onrender.com/orders \
-  -H "Content-Type: application/json" \
-  -d '{"userId":"11111111-1111-1111-1111-111111111111","productId":"22222222-2222-2222-2222-222222222222","quantity":1}'
-```
-
-Consultar estado:
-
-```bash
-curl https://<tu-api>.onrender.com/orders/<ORDER_ID>
-```
-
-### Qué significa este deploy
-
-Esto no convierte el proyecto en producción enterprise. Sí demuestra algo importante para portfolio:
-
-> La API es deployable, configurable por entorno y capaz de hablar con PostgreSQL/RabbitMQ reales fuera de tu máquina.
-
-## 🖥️ Deploy demo web estática en Render (PR #16)
-
-La demo web está en `demo/` y es HTML/CSS/JS puro. No necesita Node, bundler ni build.
-
-En Render:
-
-```text
-New → Static Site → conectar repo GitHub
-```
-
-Configuración recomendada:
-
-```text
-Name: ecommerce-demo
-Branch: main
-Root Directory: demo
-Build Command: dejar vacío
-Publish Directory: .
-```
-
-La demo apunta por defecto a:
-
-```text
-https://ecommerce-api-u14x.onrender.com
-```
-
-Validación esperada:
-
-1. Abrir la URL pública de la demo.
-2. Click en **Crear orden con stock** → estado final `CREATED`.
-3. Click en **Crear orden sin stock** → estado final `FAILED`.
-
-> Si querés probar contra backend local, cambiá manualmente el input `Backend base URL` a `http://localhost:8080`.
-
-### Endpoints base
-
-- `GET /health` → health check simple (`200 {"status":"ok"}`)
-- `GET /` → metadata mínima del backend deployado
-- `GET /metrics` → métricas operativas básicas en JSON
-- `GET /orders/:id` → consultar estado de orden
-- `POST /orders` → crear orden
-
-Server local por defecto: `http://localhost:8080`
-
-### Quick demo (flujo saga)
-
-Crear orden con stock (esperado: termina en `CREATED`):
-
-```bash
-curl -X POST http://localhost:8080/orders \
-  -H "Content-Type: application/json" \
-  -d '{"userId":"11111111-1111-1111-1111-111111111111","productId":"22222222-2222-2222-2222-222222222222","quantity":1}'
-```
-
-Crear orden sin stock (esperado: termina en `FAILED`):
-
-```bash
-curl -X POST http://localhost:8080/orders \
-  -H "Content-Type: application/json" \
-  -d '{"userId":"11111111-1111-1111-1111-111111111111","productId":"33333333-3333-3333-3333-333333333333","quantity":1}'
-```
-
-Consultar estado final de la orden:
-
-```bash
-curl http://localhost:8080/orders/<ORDER_ID>
-```
-
-## 🧪 Ejecutar tests
+## Tests
 
 ```bash
 go test ./...
 ```
 
-> Algunos tests de integración usan Testcontainers (requieren Docker disponible).
+Tests relevantes:
 
-## 👤 Autor
+- Concurrencia de inventory para evitar overselling.
+- Handler de orders con inputs inválidos.
+- Relay/outbox publicando eventos y eliminando pendientes.
+- Idempotencia en consumers.
 
-**Santino Zarate**  
-Proyecto de aprendizaje profesional con foco en backend distribuido y buenas prácticas de producción.
+## Author
+
+**Santino Zarate**
+
+Proyecto de portfolio backend enfocado en sistemas event-driven, consistencia distribuida y decisiones técnicas defendibles en entrevista.

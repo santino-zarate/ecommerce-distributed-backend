@@ -1,142 +1,171 @@
 # E-commerce Event-Driven Backend
 
-Backend de e-commerce en Go con procesamiento asíncrono real usando PostgreSQL, RabbitMQ, SAGA y Outbox Pattern.
+A Go backend for an e-commerce order flow with real asynchronous processing using PostgreSQL, RabbitMQ, the SAGA pattern, and the Outbox Pattern.
 
-No es un CRUD simple: el proyecto modela un flujo de orden + reserva de stock con consistencia eventual, idempotencia y protección contra overselling.
+This is not a simple CRUD project: it models an order + stock reservation workflow with eventual consistency, idempotency, and protection against overselling.
+
+## What is this project?
+
+This project simulates the backend of an e-commerce checkout flow where orders are created, inventory is reserved asynchronously, and the final order status is updated based on stock availability.
+
+It focuses on the kind of backend problems that appear in real distributed systems: reliable messaging, consistency between services, duplicate message handling, and safe concurrent stock updates.
+
+## Key Highlights
+
+- Event-driven backend architecture built with Go, PostgreSQL, and RabbitMQ.
+- SAGA-style order workflow coordinating Order and Inventory domains asynchronously.
+- Outbox Pattern to avoid losing events between database writes and message publishing.
+- Idempotent consumers designed for at-least-once message delivery.
+- Concurrency-safe stock reservation to prevent overselling.
+- Real deployment with API, PostgreSQL, RabbitMQ, and demo frontend running on hosted services.
 
 ## Live Demo
 
-- **Demo web:** https://ecommerce-demo-d0vt.onrender.com
+- **Web demo:** https://ecommerce-demo-d0vt.onrender.com
 - **Backend health:** https://ecommerce-api-u14x.onrender.com/health
 - **Backend root:** https://ecommerce-api-u14x.onrender.com
 
-Cómo probarlo rápido:
+Quick test flow:
 
-1. Abrí la demo web.
-2. Click en **Crear orden con stock** → el estado final esperado es `CREATED`.
-3. Click en **Crear orden sin stock** → el estado final esperado es `FAILED`.
+1. Open the web demo.
+2. Click **Create order with stock**. The expected final status is `CREATED`.
+3. Click **Create order without stock**. The expected final status is `FAILED`.
 
-La demo está conectada al backend deployado. No necesitás correr nada localmente para ver el flujo funcionando.
+The demo is connected to the deployed backend, so you do not need to run anything locally to see the flow working.
 
-## What this project demonstrates
+## What This Project Demonstrates
 
-Este proyecto demuestra decisiones y problemas reales de backend:
+This project demonstrates practical backend engineering decisions and tradeoffs:
 
-- **Event-driven architecture** con RabbitMQ.
-- **SAGA pattern** para coordinar el flujo Order → Inventory → Order.
-- **Outbox Pattern** para no perder eventos entre PostgreSQL y RabbitMQ.
-- **Idempotency** para tolerar mensajes duplicados.
-- **Concurrency-safe stock reservation** para evitar overselling.
-- **Async processing** con consumers, routing keys y Ack/Nack manual.
-- **Graceful shutdown**, timeouts y retry de startup.
-- **Logs estructurados** con `correlation_id`.
-- **Métricas básicas** expuestas vía `/metrics`.
+- **Event-driven architecture** with RabbitMQ.
+- **SAGA pattern** to coordinate the Order -> Inventory -> Order flow.
+- **Outbox Pattern** to avoid losing events between PostgreSQL and RabbitMQ.
+- **Idempotency** to tolerate duplicate messages.
+- **Concurrency-safe stock reservation** to prevent overselling.
+- **Async processing** with consumers, routing keys, and manual Ack/Nack.
+- **Graceful shutdown**, timeouts, and startup retries.
+- **Structured logs** with `correlation_id`.
+- **Basic operational metrics** exposed through `/metrics`.
 
 ## Architecture
 
-Flujo principal:
+### High-Level Flow
+
+```mermaid
+flowchart LR
+    User[User] --> API[Go API]
+    API --> PostgreSQL[(PostgreSQL)]
+    PostgreSQL --> Outbox[Outbox Table]
+    Outbox --> RabbitMQ1[RabbitMQ]
+    RabbitMQ1 --> Inventory[Inventory Consumer]
+    Inventory --> RabbitMQ2[RabbitMQ]
+    RabbitMQ2 --> Order[Order Consumer]
+    Order --> DB[(PostgreSQL)]
+```
+
+### System Flow
 
 ```text
 User
-  ↓
+  |
 Demo Web
-  ↓
+  |
 Go API
-  ↓
+  |
 PostgreSQL: orders + outbox
-  ↓
+  |
 Outbox Relay
-  ↓
+  |
 RabbitMQ
-  ↓
+  |
 Inventory Consumer
-  ↓
+  |
 RabbitMQ
-  ↓
+  |
 Order Consumer
-  ↓
+  |
 PostgreSQL: order status updated
 ```
 
-En simple:
+In simple terms:
 
-- La API recibe una orden.
-- La orden se guarda en PostgreSQL junto con un evento en la tabla `outbox`.
-- Un relay toma eventos pendientes y los publica en RabbitMQ.
-- Inventory intenta reservar stock.
-- Inventory responde con éxito o fallo.
-- Order consume esa respuesta y actualiza el estado final de la orden.
+- The API receives an order.
+- The order is stored in PostgreSQL together with an event in the `outbox` table.
+- A relay reads pending outbox events and publishes them to RabbitMQ.
+- Inventory tries to reserve stock.
+- Inventory publishes either a success or failure event.
+- Order consumes that response and updates the final order status.
 
-Esto permite que el sistema procese pasos de forma asíncrona sin depender de una única request HTTP larga.
+This allows the system to process the workflow asynchronously instead of depending on one long HTTP request.
 
-## How it works
+## How It Works
 
-1. `POST /orders` recibe `userId`, `productId` y `quantity`.
-2. Order crea la orden en estado inicial y guarda un evento `order.created` en `outbox` dentro de la misma transacción.
-3. El relay lee la outbox y publica el evento en RabbitMQ.
-4. `InventoryConsumer` consume `order.created`.
-5. Inventory intenta reservar stock con una operación atómica en PostgreSQL.
-6. Si hay stock, publica `inventory.reserved`; si no hay stock, publica `inventory.failed`.
-7. `OrderConsumer` consume la respuesta y actualiza la orden a `CREATED` o `FAILED`.
-8. La demo consulta `GET /orders/:id` hasta ver el estado final.
+1. `POST /orders` receives `userId`, `productId`, and `quantity`.
+2. Order creates the order in its initial state and stores an `order.created` event in `outbox` within the same database transaction.
+3. The outbox relay reads pending events and publishes them to RabbitMQ.
+4. `InventoryConsumer` consumes `order.created`.
+5. Inventory tries to reserve stock using an atomic PostgreSQL operation.
+6. If stock is available, Inventory publishes `inventory.reserved`; otherwise, it publishes `inventory.failed`.
+7. `OrderConsumer` consumes the response and updates the order to `CREATED` or `FAILED`.
+8. The demo polls `GET /orders/:id` until it receives the final status.
 
-## Key technical decisions
+## Key Technical Decisions
 
-### Why RabbitMQ instead of Kafka?
+### Why RabbitMQ Instead of Kafka?
 
-RabbitMQ encaja mejor para este proyecto porque el flujo necesita mensajería de comandos/eventos con routing simple, Ack/Nack manual y colas bien definidas.
+RabbitMQ fits this project well because the workflow needs command/event messaging with simple routing, manual Ack/Nack, and clearly defined queues.
 
-Kafka sería válido para event streaming, auditoría o alto volumen, pero para este caso agregaría complejidad operativa innecesaria.
+Kafka would also be valid for event streaming, audit logs, or very high-volume scenarios. For this use case, however, it would add unnecessary operational complexity.
 
-### Why Outbox Pattern?
+### Why the Outbox Pattern?
 
-Crear la orden en DB y publicar un evento en RabbitMQ son dos operaciones distintas. Si la DB confirma pero el publish falla, la orden queda creada pero nadie procesa el stock.
+Creating an order in the database and publishing an event to RabbitMQ are two separate operations. If the database commit succeeds but publishing fails, the order exists but stock reservation is never processed.
 
-La outbox reduce ese riesgo: la orden y el evento se guardan juntos en la misma transacción. Después, un relay se encarga de publicar lo pendiente.
+The outbox reduces that risk by storing the order and the event in the same transaction. A relay later publishes pending events to RabbitMQ.
 
-### Why idempotency?
+### Why Idempotency?
 
-RabbitMQ puede entregar mensajes más de una vez. Eso es normal en sistemas at-least-once.
+RabbitMQ can deliver the same message more than once. This is normal in at-least-once messaging systems.
 
-Por eso los consumers no pueden asumir “este mensaje llega una sola vez”. El sistema persiste resultados procesados para que repetir un evento no rompa el estado ni reserve stock dos veces.
+Because of that, consumers cannot assume that each message is processed only once. The system stores processed results so repeated events do not corrupt state or reserve stock twice.
 
-### Why not separate microservices yet?
+### Why Not Separate Microservices Yet?
 
-El proyecto usa dominios separados (`order`, `inventory`, etc.) pero corre como un backend Go único.
+The project has separated domains such as `order` and `inventory`, but it currently runs as a single Go backend.
 
-Esto es intencional: permite demostrar SAGA, Outbox y mensajería sin sumar la complejidad de deployar múltiples servicios desde el primer día. La separación lógica ya existe; separar procesos sería un paso posterior.
+This is intentional. It demonstrates SAGA, Outbox, messaging, and domain separation without adding the deployment complexity of multiple services too early. The logical separation already exists, and splitting the domains into separate processes would be a natural next step.
 
-## Problems solved
+## Problems Solved
 
 ### Overselling
 
-Problema: dos órdenes concurrentes podrían comprar el mismo stock.
+Problem: two concurrent orders could try to buy the same stock.
 
-Solución: reserva atómica en PostgreSQL usando una condición de stock disponible. Si no hay stock suficiente, la actualización no aplica.
+Solution: stock is reserved with an atomic PostgreSQL update that only succeeds when enough stock is available. If there is not enough stock, the update does not apply.
 
-### Duplicate messages
+### Duplicate Messages
 
-Problema: en mensajería real, un consumer puede recibir el mismo evento más de una vez.
+Problem: in real messaging systems, a consumer can receive the same event more than once.
 
-Solución: idempotencia por evento/consumer y persistencia del resultado procesado.
+Solution: consumers use idempotency by event/consumer and persist processed results.
 
-### Publish failures
+### Publish Failures
 
-Problema: guardar en DB y publicar en RabbitMQ no es una operación atómica distribuida.
+Problem: saving data in PostgreSQL and publishing to RabbitMQ is not a distributed atomic operation.
 
-Solución: Outbox Pattern. Primero se persiste el evento en DB; luego el relay publica a RabbitMQ.
+Solution: the Outbox Pattern persists the event in the database first. The relay then publishes it to RabbitMQ.
 
-### Eventual consistency
+### Eventual Consistency
 
-Problema: la orden no puede saber inmediatamente si inventory reservó stock porque el proceso es asíncrono.
+Problem: the order cannot immediately know whether Inventory reserved stock because the process is asynchronous.
 
-Solución: la orden empieza en estado pendiente y luego se actualiza a `CREATED` o `FAILED` cuando llega la respuesta de Inventory.
+Solution: the order starts in a pending state and is later updated to `CREATED` or `FAILED` when the Inventory response arrives.
 
 ## API Endpoints
 
 ### `POST /orders`
 
-Crea una orden y dispara el flujo SAGA.
+Creates an order and starts the SAGA flow.
 
 ```bash
 curl -X POST https://ecommerce-api-u14x.onrender.com/orders \
@@ -146,17 +175,17 @@ curl -X POST https://ecommerce-api-u14x.onrender.com/orders \
 
 ### `GET /orders/:id`
 
-Consulta el estado actual de una orden.
+Returns the current status of an order.
 
 ```bash
 curl https://ecommerce-api-u14x.onrender.com/orders/<ORDER_ID>
 ```
 
-> Reemplazá `<ORDER_ID>` por el ID real, sin los signos `< >`.
+> Replace `<ORDER_ID>` with the real order ID, without the `< >` symbols.
 
 ### `GET /health`
 
-Health check simple del backend.
+Simple backend health check.
 
 ```bash
 curl https://ecommerce-api-u14x.onrender.com/health
@@ -164,34 +193,34 @@ curl https://ecommerce-api-u14x.onrender.com/health
 
 ### `GET /metrics`
 
-Expone métricas operativas básicas en JSON.
+Exposes basic operational metrics in JSON.
 
 ```bash
 curl https://ecommerce-api-u14x.onrender.com/metrics
 ```
 
-## Running locally
+## Running Locally
 
-Requisitos:
+Requirements:
 
 - Go 1.26+
 - Docker + Docker Compose
 
-### 1. Levantar infraestructura
+### 1. Start Infrastructure
 
 ```bash
 docker compose up -d
 ```
 
-Esto levanta PostgreSQL y RabbitMQ local.
+This starts PostgreSQL and RabbitMQ locally.
 
-### 2. Ejecutar backend
+### 2. Run the Backend
 
 ```bash
 go run main.go
 ```
 
-Por defecto usa:
+Default configuration:
 
 ```text
 PORT=8080
@@ -199,28 +228,28 @@ DATABASE_URL=postgres://user:password@localhost:5432/ecommerce_db
 RABBITMQ_URL=amqp://guest:guest@localhost:5672/
 ```
 
-### 3. Cargar datos demo
+### 3. Load Demo Data
 
 ```bash
 docker compose exec -T postgres psql -U user -d ecommerce_db < db/seeds/001_demo.sql
 ```
 
-Datos demo:
+Demo data:
 
 ```text
-userId:              11111111-1111-1111-1111-111111111111
-productId con stock: 22222222-2222-2222-2222-222222222222
-productId sin stock: 33333333-3333-3333-3333-333333333333
+userId:                  11111111-1111-1111-1111-111111111111
+productId with stock:    22222222-2222-2222-2222-222222222222
+productId without stock: 33333333-3333-3333-3333-333333333333
 ```
 
-Opcional: correr la demo web local:
+Optional: run the web demo locally.
 
 ```bash
 cd demo
 python3 -m http.server 5500
 ```
 
-Abrir:
+Open:
 
 ```text
 http://localhost:5500
@@ -228,14 +257,14 @@ http://localhost:5500
 
 ## Deployment
 
-El proyecto está deployado con servicios reales:
+The project is deployed using real services:
 
-- **API Go:** Render Web Service
+- **Go API:** Render Web Service
 - **PostgreSQL:** Render PostgreSQL
 - **RabbitMQ:** CloudAMQP
-- **Demo web:** Render Static Site
+- **Web demo:** Render Static Site
 
-Variables usadas por la API:
+Environment variables used by the API:
 
 ```text
 PORT=10000
@@ -243,25 +272,25 @@ DATABASE_URL=<Render PostgreSQL internal URL>
 RABBITMQ_URL=<CloudAMQP AMQPS URL>
 ```
 
-La API no depende de `localhost` en deploy. Las conexiones a infraestructura se configuran por variables de entorno.
+The deployed API does not depend on `localhost`. Infrastructure connections are configured through environment variables.
 
 ## Tradeoffs & Future Improvements
 
-Tradeoffs intencionales:
+Intentional tradeoffs:
 
-- No hay UI completa de e-commerce. La demo existe para probar el flujo backend, no para simular una tienda real.
-- No hay autenticación. El foco está en consistencia, mensajería y procesamiento asíncrono.
-- No está separado en microservicios físicos todavía. La separación actual es por dominio dentro de un backend Go para mantener el proyecto entendible y deployable.
-- El health check es simple; no valida DB/RabbitMQ en profundidad.
+- There is no full e-commerce UI. The demo exists to test the backend flow, not to simulate a complete store.
+- There is no authentication. The focus is consistency, messaging, and asynchronous processing.
+- The system is not split into physical microservices yet. The current separation is domain-based inside a single Go backend to keep the project understandable and deployable.
+- The health check is simple and does not deeply validate PostgreSQL or RabbitMQ.
 
-Mejoras posibles:
+Possible improvements:
 
-- Dead Letter Queues para mensajes que fallan repetidamente.
-- Retry policy más avanzada para outbox con attempts/backoff persistidos.
-- Endpoint `/ready` que valide PostgreSQL y RabbitMQ.
-- Distributed tracing para seguir una orden de punta a punta.
-- Autenticación y ownership real de órdenes.
-- Separar Order e Inventory en procesos independientes si el proyecto evoluciona.
+- Add Dead Letter Queues for messages that fail repeatedly.
+- Add a more advanced retry policy for the outbox with persisted attempts and backoff.
+- Add a `/ready` endpoint that validates PostgreSQL and RabbitMQ.
+- Add distributed tracing to follow an order end to end.
+- Add authentication and real order ownership.
+- Split Order and Inventory into independent processes if the project evolves.
 
 ## Tests
 
@@ -269,15 +298,17 @@ Mejoras posibles:
 go test ./...
 ```
 
-Tests relevantes:
+Relevant tests include:
 
-- Concurrencia de inventory para evitar overselling.
-- Handler de orders con inputs inválidos.
-- Relay/outbox publicando eventos y eliminando pendientes.
-- Idempotencia en consumers.
+- Inventory concurrency tests to prevent overselling.
+- Order handler tests for invalid inputs.
+- Relay/outbox tests for publishing events and removing pending records.
+- Consumer idempotency tests.
 
 ## Author
 
 **Santino Zarate**
 
-Proyecto de portfolio backend enfocado en sistemas event-driven, consistencia distribuida y decisiones técnicas defendibles en entrevista.
+Backend developer focused on Go, event-driven architecture, distributed consistency, and production-oriented system design.
+
+This portfolio project highlights practical backend engineering skills: asynchronous workflows, reliable messaging, transactional boundaries, idempotent processing, and clear technical tradeoffs that can be defended in a professional engineering interview.

@@ -1,14 +1,14 @@
 # E-commerce Event-Driven Backend
 
-A Go backend for an e-commerce order flow with real asynchronous processing using PostgreSQL, RabbitMQ, the SAGA pattern, and the Outbox Pattern.
+A production-oriented Go backend that models real-world e-commerce checkout challenges: reliable async processing, safe stock reservation under concurrency, duplicate message handling, and consistency across database and message broker boundaries.
 
-This is not a simple CRUD project: it models an order + stock reservation workflow with eventual consistency, idempotency, and protection against overselling.
+This is not a simple CRUD project. It implements an order + inventory workflow using PostgreSQL, RabbitMQ, the SAGA pattern, and the Outbox Pattern to demonstrate backend design decisions that matter in distributed systems.
 
 ## What is this project?
 
 This project simulates the backend of an e-commerce checkout flow where orders are created, inventory is reserved asynchronously, and the final order status is updated based on stock availability.
 
-It focuses on the kind of backend problems that appear in real distributed systems: reliable messaging, consistency between services, duplicate message handling, and safe concurrent stock updates.
+It focuses on the kind of backend problems that appear in real systems: reliable messaging, consistency between services, duplicate message handling, and safe concurrent stock updates.
 
 ## Key Highlights
 
@@ -16,7 +16,9 @@ It focuses on the kind of backend problems that appear in real distributed syste
 - SAGA-style order workflow coordinating Order and Inventory domains asynchronously.
 - Outbox Pattern to avoid losing events between database writes and message publishing.
 - Idempotent consumers designed for at-least-once message delivery.
-- Concurrency-safe stock reservation to prevent overselling.
+- Atomic stock reservation that protects inventory from concurrent overselling scenarios.
+- Asynchronous order processing that avoids blocking the HTTP request while the SAGA completes.
+- Reliability-focused flow with manual Ack/Nack, startup retries, graceful shutdown, and structured logs.
 - Real deployment with API, PostgreSQL, RabbitMQ, and demo frontend running on hosted services.
 
 ## Live Demo
@@ -35,17 +37,13 @@ The demo is connected to the deployed backend, so you do not need to run anythin
 
 ## What This Project Demonstrates
 
-This project demonstrates practical backend engineering decisions and tradeoffs:
+This project demonstrates practical backend engineering skills:
 
-- **Event-driven architecture** with RabbitMQ.
-- **SAGA pattern** to coordinate the Order -> Inventory -> Order flow.
-- **Outbox Pattern** to avoid losing events between PostgreSQL and RabbitMQ.
-- **Idempotency** to tolerate duplicate messages.
-- **Concurrency-safe stock reservation** to prevent overselling.
-- **Async processing** with consumers, routing keys, and manual Ack/Nack.
-- **Graceful shutdown**, timeouts, and startup retries.
-- **Structured logs** with `correlation_id`.
-- **Basic operational metrics** exposed through `/metrics`.
+- Designing transactional boundaries between PostgreSQL and RabbitMQ.
+- Coordinating asynchronous domain workflows with eventual consistency.
+- Building consumers that tolerate duplicate messages and partial failures.
+- Protecting shared resources with concurrency-safe database operations.
+- Exposing operational signals through structured logs, health checks, and metrics.
 
 ## Architecture
 
@@ -61,30 +59,6 @@ flowchart LR
     Inventory --> RabbitMQ2[RabbitMQ]
     RabbitMQ2 --> Order[Order Consumer]
     Order --> DB[(PostgreSQL)]
-```
-
-### System Flow
-
-```text
-User
-  |
-Demo Web
-  |
-Go API
-  |
-PostgreSQL: orders + outbox
-  |
-Outbox Relay
-  |
-RabbitMQ
-  |
-Inventory Consumer
-  |
-RabbitMQ
-  |
-Order Consumer
-  |
-PostgreSQL: order status updated
 ```
 
 In simple terms:
@@ -312,3 +286,7 @@ Relevant tests include:
 Backend developer focused on Go, event-driven architecture, distributed consistency, and production-oriented system design.
 
 This portfolio project highlights practical backend engineering skills: asynchronous workflows, reliable messaging, transactional boundaries, idempotent processing, and clear technical tradeoffs that can be defended in a professional engineering interview.
+
+## Explore the Project
+
+Try the live demo to see the full async order flow in action, then explore the codebase to review how the SAGA workflow, outbox relay, idempotent consumers, and concurrency-safe inventory logic are implemented.
